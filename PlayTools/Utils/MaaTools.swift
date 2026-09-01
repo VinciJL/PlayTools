@@ -43,6 +43,8 @@ private let MAA_TOOLS_VERSION = 3
     private let rectMagic = Data([0x52, 0x45, 0x43, 0x54])
     // ['B', 'G', 'R', 0x01]
     private let bgrMagic = Data([0x42, 0x47, 0x52, 0x01])
+    // ['R', 'N', 'D', '0']
+    private let directRenderMagic = Data([0x52, 0x4e, 0x44, 0x30])
 
     func initialize() {
         guard PlaySettings.shared.maaTools else { return }
@@ -139,6 +141,8 @@ private let MAA_TOOLS_VERSION = 3
                     try await rectangle(to: connection)
                 case bgrMagic:
                     try await bgrScreencap(to: connection)
+                case directRenderMagic:
+                    try await directRender(to: connection)
                 default:
                     break
                 }
@@ -181,7 +185,13 @@ private let MAA_TOOLS_VERSION = 3
     // swiftlint:enable line_length
 
     private func screencap(to connection: NWConnection) async throws {
-        let data = await screenshot() ?? Data()
+        let data: Data
+        if let frame = await directRenderFrame() {
+            logger.log("SCRN source=direct-render width=\(frame.width, privacy: .public) height=\(frame.height, privacy: .public)")
+            data = rgbaData(from: frame)
+        } else {
+            data = await screenshot() ?? Data()
+        }
         try await connection.send(content: data.count.u32Bytes + data)
     }
 
@@ -322,10 +332,161 @@ private let MAA_TOOLS_VERSION = 3
     }
 
     private func bgrScreencap(to connection: NWConnection) async throws {
+        if let frame = await directRenderFrame() {
+            logger.log("BGR source=direct-render width=\(frame.width, privacy: .public) height=\(frame.height, privacy: .public)")
+            let data = bgrData(from: frame)
+            let payload = frame.width.u32Bytes + frame.height.u32Bytes + data.count.u32Bytes + data
+            try await connection.send(content: payload)
+            return
+        }
         let ((width, height), data) = await bgrScreenshot() ?? ((0, 0), Data())
         let payload = width.u32Bytes + height.u32Bytes + data.count.u32Bytes + data
         try await connection.send(content: payload)
     }
+
+    // Polls the direct-render pipeline for a ready frame. Arms a capture on
+    // the first miss and waits up to 2 seconds for the next present to
+    // complete it; returns nil only on hard failure (unsupported pipeline).
+    private func directRenderFrame() async -> ArknightsMetalFrame? {
+        let deadline = Date().addingTimeInterval(2)
+        while true {
+            switch requestDirectFrame() {
+            case .ready(let frame):
+                return frame
+            case .unsupportedFormat:
+                return nil
+            case .noFrame, .temporarilyDisabled:
+                break
+            }
+            if Date() >= deadline {
+                return nil
+            }
+            try? await Task.sleep(nanoseconds: 33_000_000)
+        }
+    }
+
+    // Captured data is BGRA (B,G,R,A). The SCRN client (RGBA method) builds a
+    // CV_8UC4 mat at the SIZE resolution and runs COLOR_RGBA2BGR, so serve
+    // R,G,B,A order; the drawable is already exactly the SIZE resolution.
+    private func rgbaData(from frame: ArknightsMetalFrame) -> Data {
+        let width = frame.width
+        let height = frame.height
+        var out = Data(count: width * height * 4)
+        out.withUnsafeMutableBytes { dst in
+            frame.data.withUnsafeBytes { src in
+                let s = src.bindMemory(to: UInt8.self)
+                let d = dst.bindMemory(to: UInt8.self)
+                for row in 0..<height {
+                    let rowBase = row * frame.bytesPerRow
+                    for col in 0..<width {
+                        let p = rowBase + col * 4
+                        let b = s[p]
+                        let g = s[p + 1]
+                        let r = s[p + 2]
+                        let a = s[p + 3]
+                        let o = (row * width + col) * 4
+                        d[o] = r
+                        d[o + 1] = g
+                        d[o + 2] = b
+                        d[o + 3] = a
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    // The BGR client treats the payload as plain B,G,R bytes, so drop the
+    // alpha component of each captured BGRA pixel.
+    private func bgrData(from frame: ArknightsMetalFrame) -> Data {
+        let width = frame.width
+        let height = frame.height
+        var out = Data(count: width * height * 3)
+        out.withUnsafeMutableBytes { dst in
+            frame.data.withUnsafeBytes { src in
+                let s = src.bindMemory(to: UInt8.self)
+                let d = dst.bindMemory(to: UInt8.self)
+                var o = 0
+                for row in 0..<height {
+                    let rowBase = row * frame.bytesPerRow
+                    for col in 0..<width {
+                        let p = rowBase + col * 4
+                        d[o] = s[p]
+                        d[o + 1] = s[p + 1]
+                        d[o + 2] = s[p + 2]
+                        o += 3
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    // RND0: one-shot direct-render frame. Response is a fixed big-endian header
+    // followed by raw pixels:
+    //   magic u32 ("RND0"), version u16, status u16,
+    //   frameID u64, timestamp u64 (host monotonic uptime, nanoseconds),
+    //   width u32, height u32, bytesPerRow u32,
+    //   pixelFormat u32 (1 = bgra8-unorm), orientation u16 (1 = up: buffer row 0
+    //   is the top of the presented image), rotation u16 (0), dataLength u32,
+    //   then dataLength bytes of pixel data.
+    // Status: 1 = ready, 2 = no-frame, 3 = unsupported-format,
+    // 4 = temporarily-disabled. Non-ready responses carry a zeroed body after
+    // the header and must not be treated as zero-size valid frames.
+
+    private func directRender(to connection: NWConnection) async throws {
+        let payload: Data
+        switch requestDirectFrame() {
+        case .ready(let frame):
+            guard frame.pixelFormat == 1, frame.data.count <= Int(UInt32.max) else {
+                payload = directRenderResponse(status: 3, frame: nil)
+                break
+            }
+            payload = directRenderResponse(status: 1, frame: frame)
+            logger.log("RND0 status=ready frameID=\(frame.frameID, privacy: .public) width=\(frame.width, privacy: .public) height=\(frame.height, privacy: .public) bytesPerRow=\(frame.bytesPerRow, privacy: .public) dataLength=\(frame.data.count, privacy: .public)")
+        case .noFrame:
+            payload = directRenderResponse(status: 2, frame: nil)
+            logger.log("RND0 status=no-frame")
+        case .unsupportedFormat:
+            payload = directRenderResponse(status: 3, frame: nil)
+            logger.log("RND0 status=unsupported-format")
+        case .temporarilyDisabled:
+            payload = directRenderResponse(status: 4, frame: nil)
+            logger.log("RND0 status=temporarily-disabled")
+        }
+        try await connection.send(content: payload)
+    }
+
+    private func directRenderResponse(status: Int, frame: ArknightsMetalFrame?) -> Data {
+        var header = Data(capacity: 48)
+        header.append(contentsOf: [0x52, 0x4e, 0x44, 0x30]) // "RND0"
+        header.append(contentsOf: [0x00, 0x01]) // version = 1
+        header.append(status.u16Bytes)
+        if let frame {
+            header.append(frame.frameID.u64Bytes)
+            header.append(frame.timestamp.u64Bytes)
+            header.append(frame.width.u32Bytes)
+            header.append(frame.height.u32Bytes)
+            header.append(frame.bytesPerRow.u32Bytes)
+            header.append(Int(frame.pixelFormat).u32Bytes)
+            header.append(Int(frame.orientation).u16Bytes)
+            header.append(Int(frame.rotation).u16Bytes)
+            header.append(frame.data.count.u32Bytes)
+            return header + frame.data
+        }
+        header.append(contentsOf: Data(count: 40))
+        return header
+    }
+
+#if PLAYTOOLS_METAL_CAPTURE && !PLAYTOOLS_METAL_PROBE
+    private func requestDirectFrame() -> ArknightsMetalCaptureResult {
+        ArknightsMetalCapture.requestFrame()
+    }
+#else
+    private func requestDirectFrame() -> ArknightsMetalCaptureResult {
+        .unsupportedFormat
+    }
+#endif
 }
 
 private enum MaaToolsError: Error {
@@ -347,6 +508,18 @@ private extension Int {
     func divRound(by div: Double) -> Int {
         let value = Double(self) / div
         return Int(value.rounded())
+    }
+}
+
+private extension UInt64 {
+    var u64Bytes: Data {
+        let bytes = [
+            UInt8(self >> 56 & 0xff), UInt8(self >> 48 & 0xff),
+            UInt8(self >> 40 & 0xff), UInt8(self >> 32 & 0xff),
+            UInt8(self >> 24 & 0xff), UInt8(self >> 16 & 0xff),
+            UInt8(self >> 8 & 0xff), UInt8(self & 0xff)
+        ]
+        return Data(bytes)
     }
 }
 

@@ -15,6 +15,9 @@
 		6E84A14528D0F94E00BF7495 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA818CBA287ABFD5000BEE9D /* UIKit.framework */; };
 		6E84A15028D0F97500BF7495 /* AKInterface.bundle in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 6E84A14C28D0F96D00BF7495 /* AKInterface.bundle */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		83B1FB7129C9AB94003BBBD4 /* MaaTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83B1FB7029C9AB94003BBBD4 /* MaaTools.swift */; };
+		D4A1B0012F00000100000001 /* ArknightsMetalProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4A1B0022F00000100000001 /* ArknightsMetalProbe.swift */; };
+		D4A1B0072F00000100000001 /* ArknightsMetalCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4A1B0092F00000100000001 /* ArknightsMetalCapture.swift */; };
+		D4A1B0082F00000100000001 /* MetalCaptureHook.m in Sources */ = {isa = PBXBuildFile; fileRef = D4A1B00B2F00000100000001 /* MetalCaptureHook.m */; };
 		951D8275299D097C00D35B20 /* Playtools.strings in Resources */ = {isa = PBXBuildFile; fileRef = 951D8277299D097C00D35B20 /* Playtools.strings */; };
 		954389C22B38922400B063BB /* MouseArea.swift in Sources */ = {isa = PBXBuildFile; fileRef = 954389C12B38922400B063BB /* MouseArea.swift */; };
 		954389C42B38968C00B063BB /* Joystick.swift in Sources */ = {isa = PBXBuildFile; fileRef = 954389C32B38968C00B063BB /* Joystick.swift */; };
@@ -76,6 +79,8 @@
 		AA719870287A81A000623C15 /* UIEvent+Private.h in Headers */ = {isa = PBXBuildFile; fileRef = AA719842287A81A000623C15 /* UIEvent+Private.h */; };
 		AA719872287A81A000623C15 /* UITouch+Private.h in Headers */ = {isa = PBXBuildFile; fileRef = AA719844287A81A000623C15 /* UITouch+Private.h */; };
 		AA818CB9287ABFB1000BEE9D /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA818CB8287ABFB1000BEE9D /* IOKit.framework */; };
+		D4A1B0032F00000100000001 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D4A1B0052F00000100000001 /* Metal.framework */; };
+		D4A1B0042F00000100000001 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D4A1B0062F00000100000001 /* QuartzCore.framework */; };
 		AB7DA47529B85BFB0034ACB2 /* PlayShadow.m in Sources */ = {isa = PBXBuildFile; fileRef = AB7DA47429B85BFB0034ACB2 /* PlayShadow.m */; };
 		AB7DA47729B8A78B0034ACB2 /* PlayShadow.h in Headers */ = {isa = PBXBuildFile; fileRef = AB7DA47629B8A78B0034ACB2 /* PlayShadow.h */; };
 		ABCECEE629750BA600746595 /* PlayedApple.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABCECEE529750BA600746595 /* PlayedApple.swift */; };
@@ -112,6 +117,10 @@
 		6E7663A428D0FEBE00DE4AF9 /* AKPluginLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AKPluginLoader.swift; sourceTree = "<group>"; };
 		6E84A14C28D0F96D00BF7495 /* AKInterface.bundle */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AKInterface.bundle; sourceTree = BUILT_PRODUCTS_DIR; };
 		83B1FB7029C9AB94003BBBD4 /* MaaTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaaTools.swift; sourceTree = "<group>"; };
+		D4A1B0022F00000100000001 /* ArknightsMetalProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArknightsMetalProbe.swift; sourceTree = "<group>"; };
+		D4A1B0092F00000100000001 /* ArknightsMetalCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArknightsMetalCapture.swift; sourceTree = "<group>"; };
+		D4A1B00A2F00000100000001 /* MetalCaptureHook.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MetalCaptureHook.h; sourceTree = "<group>"; };
+		D4A1B00B2F00000100000001 /* MetalCaptureHook.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MetalCaptureHook.m; sourceTree = "<group>"; };
 		951D8276299D097C00D35B20 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Playtools.strings; sourceTree = "<group>"; };
 		951D8278299D098000D35B20 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Playtools.strings"; sourceTree = "<group>"; };
 		954389C12B38922400B063BB /* MouseArea.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseArea.swift; sourceTree = "<group>"; };
@@ -178,6 +187,8 @@
 		AA719844287A81A000623C15 /* UITouch+Private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "UITouch+Private.h"; sourceTree = "<group>"; };
 		AA818CB8287ABFB1000BEE9D /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX12.3.sdk/System/Library/Frameworks/IOKit.framework; sourceTree = DEVELOPER_DIR; };
 		AA818CBA287ABFD5000BEE9D /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX12.3.sdk/System/iOSSupport/System/Library/Frameworks/UIKit.framework; sourceTree = DEVELOPER_DIR; };
+		D4A1B0052F00000100000001 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX12.3.sdk/System/iOSSupport/System/Library/Frameworks/Metal.framework; sourceTree = DEVELOPER_DIR; };
+		D4A1B0062F00000100000001 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX12.3.sdk/System/iOSSupport/System/Library/Frameworks/QuartzCore.framework; sourceTree = DEVELOPER_DIR; };
 		AB7DA47429B85BFB0034ACB2 /* PlayShadow.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PlayShadow.m; sourceTree = "<group>"; };
 		AB7DA47629B8A78B0034ACB2 /* PlayShadow.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PlayShadow.h; sourceTree = "<group>"; };
 		ABCECEE529750BA600746595 /* PlayedApple.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayedApple.swift; sourceTree = "<group>"; };
@@ -208,6 +219,8 @@
 				B6D774FF2ACFC3D900C0D9D8 /* SwordRPC in Frameworks */,
 				6E84A14528D0F94E00BF7495 /* UIKit.framework in Frameworks */,
 				AA818CB9287ABFB1000BEE9D /* IOKit.framework in Frameworks */,
+				D4A1B0032F00000100000001 /* Metal.framework in Frameworks */,
+				D4A1B0042F00000100000001 /* QuartzCore.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -451,6 +464,10 @@
 				AA719705287A44D200623C15 /* PlayLoader.h */,
 				AA719702287A44D200623C15 /* PlayLoader.m */,
 				AA719708287A44D200623C15 /* PlayTools.h */,
+				D4A1B0022F00000100000001 /* ArknightsMetalProbe.swift */,
+				D4A1B0092F00000100000001 /* ArknightsMetalCapture.swift */,
+				D4A1B00A2F00000100000001 /* MetalCaptureHook.h */,
+				D4A1B00B2F00000100000001 /* MetalCaptureHook.m */,
 				2847AE47298EFC0F00B0F983 /* PlayScreen.swift */,
 			);
 			path = PlayTools;
@@ -536,6 +553,8 @@
 			children = (
 				AA818CBA287ABFD5000BEE9D /* UIKit.framework */,
 				AA818CB8287ABFB1000BEE9D /* IOKit.framework */,
+				D4A1B0052F00000100000001 /* Metal.framework */,
+				D4A1B0062F00000100000001 /* QuartzCore.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -755,6 +774,9 @@
 				9562D1732AB52416002C329D /* EditorKeyboardEventAdapter.swift in Sources */,
 				9562D1752AB52479002C329D /* EditorMouseEventAdapter.swift in Sources */,
 				AA7197AA287A481500623C15 /* Toast.swift in Sources */,
+				D4A1B0012F00000100000001 /* ArknightsMetalProbe.swift in Sources */,
+				D4A1B0072F00000100000001 /* ArknightsMetalCapture.swift in Sources */,
+				D4A1B0082F00000100000001 /* MetalCaptureHook.m in Sources */,
 				83B1FB7129C9AB94003BBBD4 /* MaaTools.swift in Sources */,
 				AA719789287A480D00623C15 /* PlayInput.swift in Sources */,
 				AA71970B287A44D200623C15 /* PlayLoader.m in Sources */,

@@ -13,6 +13,13 @@ public class PlayCover: NSObject {
 
     @objc static public func launch() {
         quitWhenClose()
+#if PLAYTOOLS_METAL_CAPTURE
+        print("[PlayTools] metal capture launch")
+        ArknightsMetalCapture.install()
+#elseif PLAYTOOLS_METAL_PROBE
+        print("[PlayTools] metal probe launch")
+        ArknightsMetalProbe.install()
+#endif
         AKInterface.initialize()
         PlayScreen.shared.initialize()
         PlayInput.shared.initialize()
