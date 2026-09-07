@@ -323,17 +323,19 @@ private let MAA_TOOLS_VERSION = 4
             return
         }
 
-        var src = vImage_Buffer(data: frame.buffer.contents(),
-                                height: UInt(frame.height), width: UInt(frame.width),
-                                rowBytes: 4 * frame.width)
-
         let length = 3 * frame.height * frame.width
         let buffer = pool.acquire(capacity: length)
-        var dst = vImage_Buffer(data: buffer,
-                                height: src.height, width: src.width,
-                                rowBytes: 3 * Int(src.width))
 
-        vImageConvert_RGBA8888toRGB888(&src, &dst, vImage_Flags(kvImageNoFlags))
+        frame.data.withUnsafeBytes { raw in
+            guard let base = raw.baseAddress else { return }
+            var src = vImage_Buffer(data: .init(mutating: base),
+                                    height: UInt(frame.height), width: UInt(frame.width),
+                                    rowBytes: frame.bytesPerRow)
+            var dst = vImage_Buffer(data: buffer,
+                                    height: UInt(frame.height), width: UInt(frame.width),
+                                    rowBytes: 3 * frame.width)
+            vImageConvert_RGBA8888toRGB888(&src, &dst, vImage_Flags(kvImageNoFlags))
+        }
 
         let header = frame.width.u32Bytes + frame.height.u32Bytes + length.u32Bytes
         let data = Data(bytesNoCopy: buffer, count: length, deallocator: .none)
