@@ -39,6 +39,9 @@ final class ArknightsMetalCapture {
             return false
         }
 
+        PTInstallFramebufferOnlyOverride()
+        PTInstallMetalLayerDrawableSizeFix()
+
         guard let device = MTLCreateSystemDefaultDevice(),
               let commandQueue = device.makeCommandQueue(),
               let commandBuffer = commandQueue.makeCommandBuffer(),
@@ -72,7 +75,7 @@ final class ArknightsMetalCapture {
         let texture = drawable.texture
         guard texture.pixelFormat == .bgra8Unorm,
               texture.sampleCount == 1,
-              !drawable.layer.framebufferOnly else { return }
+              texture.width > 0, texture.height > 0 else { return }
 
         guard let (commandQueue, continuation) = state.take() else {
             return
