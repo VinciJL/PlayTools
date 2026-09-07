@@ -332,7 +332,7 @@ private let MAA_TOOLS_VERSION = 4
         // Copy IOSurface data to RGBA buffer (pixel data is already RGBA layout)
         frame.data.withUnsafeBytes { raw in
             guard let src = raw.baseAddress else { return }
-            rgbaBuffer.copyMemory(from: src, byteCount: rgbaLength)
+            UnsafeMutableRawPointer(rgbaBuffer).copyMemory(from: src, byteCount: rgbaLength)
         }
 
         // Composite window image (UI overlays) on top of Metal content
