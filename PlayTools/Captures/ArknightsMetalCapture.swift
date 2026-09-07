@@ -1,4 +1,3 @@
-import IOKit
 import IOSurface
 import Metal
 import OSLog
@@ -94,7 +93,7 @@ final class ArknightsMetalCapture {
         let length = bytesPerRow * height
 
         let kr = IOSurfaceLock(surface, .readOnly, nil)
-        guard kr == kIOReturnSuccess else {
+        guard kr == 0 else {
             logger.error("IOSurfaceLock failed: \(kr)")
             continuation.resume(throwing: MetalCaptureError.unavailable)
             return
