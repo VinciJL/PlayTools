@@ -405,15 +405,27 @@ class AKPlugin: NSObject, Plugin {
     private var hideTitleBarSetting: Bool { Self.akAppSettingsData?.hideTitleBar ?? false }
     private var floatingWindowSetting: Bool { Self.akAppSettingsData?.floatingWindow ?? false }
     private var aspectRatioSetting: NSSize? {
-        guard Self.akAppSettingsData?.resolution == 6 else {
-            return nil
+        let resolution = Self.akAppSettingsData?.resolution ?? 0
+        if resolution == 6 {
+            let width = Self.akAppSettingsData?.resizableAspectRatioWidth ?? 0
+            let height = Self.akAppSettingsData?.resizableAspectRatioHeight ?? 0
+            guard width > 0 && height > 0 else {
+                return nil
+            }
+            return NSSize(width: width, height: height)
+        } else if resolution == 7 {
+            // Lock aspect ratio to configured rendering resolution
+            // PlaySettings is in PlayTools module; access via ObjC runtime
+            if let psClass = NSClassFromString("PlaySettings") as? NSObject.Type,
+               let shared = psClass.perform(NSSelectorFromString("shared"))?.takeUnretainedValue() as? NSObject,
+               let ratioWidth = shared.value(forKey: "windowSizeWidth") as? CGFloat,
+               let ratioHeight = shared.value(forKey: "windowSizeHeight") as? CGFloat,
+               ratioWidth > 0 && ratioHeight > 0 {
+                return NSSize(width: ratioWidth, height: ratioHeight)
+            }
+            return NSSize(width: 1920, height: 1080)
         }
-        let width = Self.akAppSettingsData?.resizableAspectRatioWidth ?? 0
-        let height = Self.akAppSettingsData?.resizableAspectRatioHeight ?? 0
-        guard width > 0 && height > 0 else {
-            return nil
-        }
-        return NSSize(width: width, height: height)
+        return nil
     }
 
     fileprivate static var akAppSettingsData: AKAppSettingsData? = {
