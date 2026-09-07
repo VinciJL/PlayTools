@@ -13,4 +13,18 @@ FOUNDATION_EXPORT BOOL PTInstallMetalCaptureHooks(
     PTMetalDrawableCallback presentCallback
 );
 
+/// Forces CAMetalLayer.framebufferOnly to NO so drawable textures can be
+/// read by blit encoders. Install before any layer is configured.
+FOUNDATION_EXPORT BOOL PTInstallFramebufferOnlyOverride(void);
+
+/// Guards CAMetalLayer.setDrawableSize: against CGSizeZero, substituting
+/// the last valid size (default 1280x720) to prevent Metal assertion
+/// failures when Unity calls setDrawableSize: during scene teardown.
+FOUNDATION_EXPORT BOOL PTInstallMetalLayerDrawableSizeFix(void);
+
+/// Auto-answers the AppKit "reopen windows?" modal that blocks window
+/// materialization after an abnormal exit, preventing Unity from
+/// aborting on a 0x0 CAMetalLayer during render init.
+FOUNDATION_EXPORT BOOL PTInstallMetalAlertAutoAnswer(void);
+
 NS_ASSUME_NONNULL_END
