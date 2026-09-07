@@ -11,7 +11,9 @@
 #import "UIKit/UIKit.h"
 #import <PlayTools/PlayTools-Swift.h>
 #import "PTFakeMetaTouch.h"
+#if !TARGET_OS_MACCATALYST
 #import <VideoSubscriberAccount/VideoSubscriberAccount.h>
+#endif
 #import <AVFoundation/AVFoundation.h>
 #import <CoreMotion/CoreMotion.h>
 #import <GameController/GameController.h>
@@ -157,9 +159,11 @@ __attribute__((visibility("hidden")))
     return NO;
 }
 
+#if !TARGET_OS_MACCATALYST
 - (void) hook_setCurrentSubscription:(VSSubscription *)currentSubscription {
     // do nothing
 }
+#endif
 
 - (NSString *)hook_stringByReplacingOccurrencesOfRegularExpressionPattern:(NSString *)pattern
                                                              withTemplate:(NSString *)template
@@ -338,7 +342,9 @@ bool menuWasCreated = false;
     // [objc_getClass("UIDevice") swizzleInstanceMethod:@selector(userInterfaceIdiom) withMethod:@selector(hook_userInterfaceIdiom)];
     // [objc_getClass("UITraitCollection") swizzleInstanceMethod:@selector(userInterfaceIdiom) withMethod:@selector(hook_userInterfaceIdiom)];
 
+#if !TARGET_OS_MACCATALYST
     [objc_getClass("VSSubscriptionRegistrationCenter") swizzleInstanceMethod:@selector(setCurrentSubscription:) withMethod:@selector(hook_setCurrentSubscription:)];
+#endif
 
     if (PlayInfo.isUnrealEngine) {
         // Fix NSRegularExpression crash when system language is set to Chinese

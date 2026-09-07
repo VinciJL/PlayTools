@@ -323,22 +323,40 @@ private let MAA_TOOLS_VERSION = 4
             return
         }
 
-        let length = 3 * frame.height * frame.width
-        let buffer = pool.acquire(capacity: length)
+        let rgbaLength = 4 * frame.height * frame.width
+        let rgbLength = 3 * frame.height * frame.width
+        let rgbBuffer = pool.acquire(capacity: rgbLength)
+        let rgbaBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: rgbaLength)
+        defer { rgbaBuffer.deallocate() }
 
+        // Copy IOSurface data to RGBA buffer (pixel data is already RGBA layout)
         frame.data.withUnsafeBytes { raw in
-            guard let base = raw.baseAddress else { return }
-            var src = vImage_Buffer(data: .init(mutating: base),
-                                    height: UInt(frame.height), width: UInt(frame.width),
-                                    rowBytes: frame.bytesPerRow)
-            var dst = vImage_Buffer(data: buffer,
-                                    height: UInt(frame.height), width: UInt(frame.width),
-                                    rowBytes: 3 * frame.width)
-            vImageConvert_RGBA8888toRGB888(&src, &dst, vImage_Flags(kvImageNoFlags))
+            guard let src = raw.baseAddress else { return }
+            rgbaBuffer.copyMemory(from: src, byteCount: rgbaLength)
         }
 
-        let header = frame.width.u32Bytes + frame.height.u32Bytes + length.u32Bytes
-        let data = Data(bytesNoCopy: buffer, count: length, deallocator: .none)
+        // Composite window image (UI overlays) on top of Metal content
+        if let windowImage = await AKInterface.shared?.windowImage() {
+            let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrderDefault.rawValue
+            let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+            if let ctx = CGContext(data: rgbaBuffer, width: frame.width, height: frame.height,
+                                   bitsPerComponent: 8, bytesPerRow: 4 * frame.width,
+                                   space: colorSpace, bitmapInfo: bitmapInfo) {
+                ctx.draw(windowImage, in: CGRect(x: 0, y: 0, width: frame.width, height: frame.height))
+            }
+        }
+
+        // RGBA -> RGB
+        var src = vImage_Buffer(data: rgbaBuffer,
+                                height: UInt(frame.height), width: UInt(frame.width),
+                                rowBytes: 4 * frame.width)
+        var dst = vImage_Buffer(data: rgbBuffer,
+                                height: UInt(frame.height), width: UInt(frame.width),
+                                rowBytes: 3 * frame.width)
+        vImageConvert_RGBA8888toRGB888(&src, &dst, vImage_Flags(kvImageNoFlags))
+
+        let header = frame.width.u32Bytes + frame.height.u32Bytes + rgbLength.u32Bytes
+        let data = Data(bytesNoCopy: rgbBuffer, count: rgbLength, deallocator: .none)
 
         try await connection.send(content: header)
         try await connection.send(content: data)
