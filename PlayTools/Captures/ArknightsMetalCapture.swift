@@ -1,3 +1,4 @@
+import IOKit
 import IOSurface
 import Metal
 import OSLog
