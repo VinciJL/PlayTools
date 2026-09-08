@@ -338,28 +338,11 @@ private let MAA_TOOLS_VERSION = 4
                                                height: UInt(frame.height), width: UInt(frame.width),
                                                rowBytes: 4 * frame.width)
         var permuteMap: [UInt8] = [2, 1, 0, 3]  // B,G,R,A → R,G,B,A
-        vImagePermuteChannels_ARGB8888(&permuteBGRAtoRGBA, &permuteBGRAtoRGBA, &permuteMap, vImage_Flags(kvImageNoFlags))
+        vImagePermuteChannels_ARGB8888(
+            &permuteBGRAtoRGBA, &permuteBGRAtoRGBA, &permuteMap, vImage_Flags(kvImageNoFlags))
 
-        // Render all UIKit layers (including WebView) at fixed resolution
-        if let keyWindow = await MainActor.run(body: { PlayScreen.shared.keyWindow }) {
-            let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrderDefault.rawValue
-            let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
-            if let ctx = CGContext(data: rgbaBuffer, width: frame.width, height: frame.height,
-                                   bitsPerComponent: 8, bytesPerRow: 4 * frame.width,
-                                   space: colorSpace, bitmapInfo: bitmapInfo) {
-                let winW = keyWindow.bounds.size.width
-                let winH = keyWindow.bounds.size.height
-                if winW > 0 && winH > 0 {
-                    // UIKit origin (bottom-left) → buffer origin (top-left): flip Y
-                    ctx.translateBy(x: 0, y: CGFloat(frame.height))
-                    ctx.scaleBy(x: CGFloat(frame.width) / winW,
-                                y: -CGFloat(frame.height) / winH)
-                    await MainActor.run {
-                        keyWindow.layer.render(in: ctx)
-                    }
-                }
-            }
-        }
+        compositeUIKitOverlay(
+            rgbaBuffer: rgbaBuffer, width: frame.width, height: frame.height)
 
         // RGBA -> RGB
         var src = vImage_Buffer(data: rgbaBuffer,
@@ -375,6 +358,29 @@ private let MAA_TOOLS_VERSION = 4
 
         try await connection.send(content: header)
         try await connection.send(content: data)
+    }
+
+    private func compositeUIKitOverlay(
+        rgbaBuffer: UnsafeMutablePointer<UInt8>, width: Int, height: Int
+    ) async {
+        guard let keyWindow = await MainActor.run(body: { PlayScreen.shared.keyWindow }) else {
+            return
+        }
+        let bitmapInfo =
+            CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrderDefault.rawValue
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+        guard let ctx = CGContext(
+            data: rgbaBuffer, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: 4 * width,
+            space: colorSpace, bitmapInfo: bitmapInfo
+        ) else { return }
+        let winW = keyWindow.bounds.size.width
+        let winH = keyWindow.bounds.size.height
+        guard winW > 0 && winH > 0 else { return }
+        // UIKit origin (bottom-left) → buffer origin (top-left): flip Y
+        ctx.translateBy(x: 0, y: CGFloat(height))
+        ctx.scaleBy(x: CGFloat(width) / winW, y: -CGFloat(height) / winH)
+        await MainActor.run { keyWindow.layer.render(in: ctx) }
     }
 }
 

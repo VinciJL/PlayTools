@@ -92,9 +92,9 @@ final class ArknightsMetalCapture {
         let bytesPerRow = IOSurfaceGetBytesPerRow(surface)
         let length = bytesPerRow * height
 
-        let kr = IOSurfaceLock(surface, .readOnly, nil)
-        guard kr == 0 else {
-            logger.error("IOSurfaceLock failed: \(kr)")
+        let lockResult = IOSurfaceLock(surface, .readOnly, nil)
+        guard lockResult == 0 else {
+            logger.error("IOSurfaceLock failed: \(lockResult)")
             continuation.resume(throwing: MetalCaptureError.unavailable)
             return
         }
@@ -119,7 +119,10 @@ final class ArknightsMetalCapture {
                 buf.advanced(by: row * pixelBytes).copyMemory(from: src, byteCount: pixelBytes)
             }
             IOSurfaceUnlock(surface, .readOnly, nil)
-            data = Data(bytesNoCopy: buf, count: pixelBytes * height, deallocator: .custom { ptr, _ in ptr.deallocate() })
+            data = Data(
+                bytesNoCopy: buf, count: pixelBytes * height,
+                deallocator: .custom { ptr, _ in ptr.deallocate() }
+            )
         }
 
         continuation.resume(returning: .init(
