@@ -329,11 +329,16 @@ private let MAA_TOOLS_VERSION = 4
         let rgbaBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: rgbaLength)
         defer { rgbaBuffer.deallocate() }
 
-        // Copy IOSurface data to RGBA buffer (pixel data is already RGBA layout)
+        // Metal IOSurface is BGRA; swap to RGBA so CGContext and vImage see correct channels
         frame.data.withUnsafeBytes { raw in
             guard let src = raw.baseAddress else { return }
             UnsafeMutableRawPointer(rgbaBuffer).copyMemory(from: src, byteCount: rgbaLength)
         }
+        var permuteBGRAtoRGBA = vImage_Buffer(data: rgbaBuffer,
+                                               height: UInt(frame.height), width: UInt(frame.width),
+                                               bytesPerRow: 4 * frame.width)
+        var permuteMap: [UInt8] = [2, 1, 0, 3]  // B,G,R,A → R,G,B,A
+        vImagePermuteChannels_ARGB8888(&permuteBGRAtoRGBA, &permuteBGRAtoRGBA, &permuteMap, vImage_Flags(kvImageNoFlags))
 
         // Render all UIKit layers (including WebView) at fixed resolution
         if let keyWindow = await MainActor.run(body: { PlayScreen.shared.keyWindow }) {
@@ -342,10 +347,13 @@ private let MAA_TOOLS_VERSION = 4
             if let ctx = CGContext(data: rgbaBuffer, width: frame.width, height: frame.height,
                                    bitsPerComponent: 8, bytesPerRow: 4 * frame.width,
                                    space: colorSpace, bitmapInfo: bitmapInfo) {
-                let winSize = keyWindow.bounds.size
-                if winSize.width > 0 && winSize.height > 0 {
-                    ctx.scaleBy(x: CGFloat(frame.width) / winSize.width,
-                                y: CGFloat(frame.height) / winSize.height)
+                let winW = keyWindow.bounds.size.width
+                let winH = keyWindow.bounds.size.height
+                if winW > 0 && winH > 0 {
+                    // UIKit origin (bottom-left) → buffer origin (top-left): flip Y
+                    ctx.translateBy(x: 0, y: CGFloat(frame.height))
+                    ctx.scaleBy(x: CGFloat(frame.width) / winW,
+                                y: -CGFloat(frame.height) / winH)
                     await MainActor.run {
                         keyWindow.layer.render(in: ctx)
                     }
