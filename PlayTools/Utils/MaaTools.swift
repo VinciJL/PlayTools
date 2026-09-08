@@ -336,7 +336,7 @@ private let MAA_TOOLS_VERSION = 4
         }
         var permuteBGRAtoRGBA = vImage_Buffer(data: rgbaBuffer,
                                                height: UInt(frame.height), width: UInt(frame.width),
-                                               bytesPerRow: 4 * frame.width)
+                                               rowBytes: 4 * frame.width)
         var permuteMap: [UInt8] = [2, 1, 0, 3]  // B,G,R,A → R,G,B,A
         vImagePermuteChannels_ARGB8888(&permuteBGRAtoRGBA, &permuteBGRAtoRGBA, &permuteMap, vImage_Flags(kvImageNoFlags))
 
