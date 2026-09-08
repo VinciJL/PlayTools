@@ -1,3 +1,4 @@
+import IOSurface
 import Metal
 import OSLog
 import QuartzCore
@@ -10,7 +11,6 @@ final class ArknightsMetalCapture {
     ]
 
     private let state = MetalCaptureState()
-    private let buffers = MetalCaptureBufferPool(capacity: 3)
 
     static let shared = ArknightsMetalCapture()
 
@@ -38,6 +38,9 @@ final class ArknightsMetalCapture {
         else {
             return false
         }
+
+        PTInstallFramebufferOnlyOverride()
+        PTInstallMetalLayerDrawableSizeFix()
 
         guard let device = MTLCreateSystemDefaultDevice(),
               let commandQueue = device.makeCommandQueue(),
@@ -72,50 +75,61 @@ final class ArknightsMetalCapture {
         let texture = drawable.texture
         guard texture.pixelFormat == .bgra8Unorm,
               texture.sampleCount == 1,
-              !drawable.layer.framebufferOnly else { return }
+              texture.width > 0, texture.height > 0 else { return }
 
-        guard let (commandQueue, continuation) = state.take() else {
+        guard let continuation = state.takeContinuation() else {
+            return
+        }
+
+        guard let surface = texture.iosurface else {
+            logger.error("Drawable texture has no IOSurface backing")
+            continuation.resume(throwing: MetalCaptureError.unavailable)
             return
         }
 
         let width = texture.width
         let height = texture.height
-        let bytesPerRow = width * 4
+        let bytesPerRow = IOSurfaceGetBytesPerRow(surface)
         let length = bytesPerRow * height
 
-        guard let buffer = buffers.acquire(from: texture.device, length: length),
-              let commandBuffer = commandQueue.makeCommandBuffer(),
-              let encoder = commandBuffer.makeBlitCommandEncoder()
-        else {
+        let lockResult = IOSurfaceLock(surface, .readOnly, nil)
+        guard lockResult == 0 else {
+            logger.error("IOSurfaceLock failed: \(lockResult)")
             continuation.resume(throwing: MetalCaptureError.unavailable)
             return
         }
 
-        encoder.copy(
-            from: texture,
-            sourceSlice: 0,
-            sourceLevel: 0,
-            sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
-            sourceSize: MTLSize(width: width, height: height, depth: 1),
-            to: buffer.buffer,
-            destinationOffset: 0,
-            destinationBytesPerRow: bytesPerRow,
-            destinationBytesPerImage: 0
-        )
-        encoder.endEncoding()
+        let base = IOSurfaceGetBaseAddress(surface)
 
-        commandBuffer.addCompletedHandler { commandBuffer in
-            if let error = commandBuffer.error {
-                continuation.resume(throwing: error)
-                return
+        // If the surface row stride matches width*4, we can hand off the
+        // IOSurface memory directly via a no-copy Data wrapper.  Otherwise
+        // copy row-by-row to strip the padding.
+        let pixelBytes = width * 4
+        let data: Data
+        if bytesPerRow == pixelBytes {
+            data = Data(
+                bytesNoCopy: base,
+                count: length,
+                deallocator: .custom { _, _ in IOSurfaceUnlock(surface, .readOnly, nil) }
+            )
+        } else {
+            let buf = UnsafeMutableRawPointer.allocate(byteCount: pixelBytes * height, alignment: 1)
+            for row in 0..<height {
+                let src = base.advanced(by: row * bytesPerRow)
+                buf.advanced(by: row * pixelBytes).copyMemory(from: src, byteCount: pixelBytes)
             }
-
-            guard commandBuffer.status == .completed else {
-                fatalError("Metal blit incomplete without any error")
-            }
-
-            continuation.resume(returning: .init(width: width, height: height, buffer: buffer))
+            IOSurfaceUnlock(surface, .readOnly, nil)
+            data = Data(
+                bytesNoCopy: buf, count: pixelBytes * height,
+                deallocator: .custom { ptr, _ in ptr.deallocate() }
+            )
         }
-        commandBuffer.commit()
+
+        continuation.resume(returning: .init(
+            width: width,
+            height: height,
+            bytesPerRow: pixelBytes,
+            data: data
+        ))
     }
 }

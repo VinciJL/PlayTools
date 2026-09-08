@@ -323,23 +323,64 @@ private let MAA_TOOLS_VERSION = 4
             return
         }
 
-        var src = vImage_Buffer(data: frame.buffer.contents(),
+        let rgbaLength = 4 * frame.height * frame.width
+        let rgbLength = 3 * frame.height * frame.width
+        let rgbBuffer = pool.acquire(capacity: rgbLength)
+        let rgbaBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: rgbaLength)
+        defer { rgbaBuffer.deallocate() }
+
+        // Metal IOSurface is BGRA; swap to RGBA so CGContext and vImage see correct channels
+        frame.data.withUnsafeBytes { raw in
+            guard let src = raw.baseAddress else { return }
+            UnsafeMutableRawPointer(rgbaBuffer).copyMemory(from: src, byteCount: rgbaLength)
+        }
+        var permuteBGRAtoRGBA = vImage_Buffer(data: rgbaBuffer,
+                                               height: UInt(frame.height), width: UInt(frame.width),
+                                               rowBytes: 4 * frame.width)
+        var permuteMap: [UInt8] = [2, 1, 0, 3]  // B,G,R,A → R,G,B,A
+        vImagePermuteChannels_ARGB8888(
+            &permuteBGRAtoRGBA, &permuteBGRAtoRGBA, &permuteMap, vImage_Flags(kvImageNoFlags))
+
+        compositeUIKitOverlay(
+            rgbaBuffer: rgbaBuffer, width: frame.width, height: frame.height)
+
+        // RGBA -> RGB
+        var src = vImage_Buffer(data: rgbaBuffer,
                                 height: UInt(frame.height), width: UInt(frame.width),
                                 rowBytes: 4 * frame.width)
-
-        let length = 3 * frame.height * frame.width
-        let buffer = pool.acquire(capacity: length)
-        var dst = vImage_Buffer(data: buffer,
-                                height: src.height, width: src.width,
-                                rowBytes: 3 * Int(src.width))
-
+        var dst = vImage_Buffer(data: rgbBuffer,
+                                height: UInt(frame.height), width: UInt(frame.width),
+                                rowBytes: 3 * frame.width)
         vImageConvert_RGBA8888toRGB888(&src, &dst, vImage_Flags(kvImageNoFlags))
 
-        let header = frame.width.u32Bytes + frame.height.u32Bytes + length.u32Bytes
-        let data = Data(bytesNoCopy: buffer, count: length, deallocator: .none)
+        let header = frame.width.u32Bytes + frame.height.u32Bytes + rgbLength.u32Bytes
+        let data = Data(bytesNoCopy: rgbBuffer, count: rgbLength, deallocator: .none)
 
         try await connection.send(content: header)
         try await connection.send(content: data)
+    }
+
+    private func compositeUIKitOverlay(
+        rgbaBuffer: UnsafeMutablePointer<UInt8>, width: Int, height: Int
+    ) async {
+        guard let keyWindow = await MainActor.run(body: { PlayScreen.shared.keyWindow }) else {
+            return
+        }
+        let bitmapInfo =
+            CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrderDefault.rawValue
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+        guard let ctx = CGContext(
+            data: rgbaBuffer, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: 4 * width,
+            space: colorSpace, bitmapInfo: bitmapInfo
+        ) else { return }
+        let winW = keyWindow.bounds.size.width
+        let winH = keyWindow.bounds.size.height
+        guard winW > 0 && winH > 0 else { return }
+        // UIKit origin (bottom-left) → buffer origin (top-left): flip Y
+        ctx.translateBy(x: 0, y: CGFloat(height))
+        ctx.scaleBy(x: CGFloat(width) / winW, y: -CGFloat(height) / winH)
+        await MainActor.run { keyWindow.layer.render(in: ctx) }
     }
 }
 

@@ -1,6 +1,7 @@
 #import "MetalCaptureHook.h"
 
 #import <QuartzCore/CAMetalLayer.h>
+#import <objc/message.h>
 #import <objc/runtime.h>
 #import <string.h>
 
@@ -144,4 +145,143 @@ BOOL PTInstallMetalCaptureHooks(Class commandBufferClass,
                             (IMP)PTMetalNextDrawable, "@16@0:8");
         return YES;
     }
+}
+
+#pragma mark - framebufferOnly Override
+
+typedef void (*PTSetFramebufferOnlyIMP)(id, SEL, BOOL);
+
+static PTSetFramebufferOnlyIMP PTOriginalSetFramebufferOnly;
+static BOOL PTFramebufferOnlyOverrideInstalled;
+
+static void PTSetFramebufferOnlyOverride(id self, SEL selector, BOOL value) {
+    // Force framebufferOnly off so drawable textures can be read by blit
+    // encoders. The performance cost is negligible for Catalyst/iOS games.
+    if (PTOriginalSetFramebufferOnly != NULL) {
+        PTOriginalSetFramebufferOnly(self, selector, NO);
+    }
+}
+
+BOOL PTInstallFramebufferOnlyOverride(void) {
+    if (PTFramebufferOnlyOverrideInstalled) {
+        return YES;
+    }
+    Method method = class_getInstanceMethod(
+        [CAMetalLayer class],
+        sel_registerName("setFramebufferOnly:"));
+    if (method == NULL) {
+        return NO;
+    }
+    PTOriginalSetFramebufferOnly =
+        (PTSetFramebufferOnlyIMP)method_getImplementation(method);
+    if (PTOriginalSetFramebufferOnly == NULL) {
+        return NO;
+    }
+    method_setImplementation(method, (IMP)PTSetFramebufferOnlyOverride);
+    PTFramebufferOnlyOverrideInstalled = YES;
+    return YES;
+}
+
+#pragma mark - CAMetalLayer setDrawableSize: 0x0 Guard
+
+typedef void (*PTSetDrawableSizeIMP)(id, SEL, CGSize);
+typedef CGSize (*PTDrawableSizeIMP)(id, SEL);
+
+static PTSetDrawableSizeIMP PTOriginalSetDrawableSize;
+static PTDrawableSizeIMP PTOriginalDrawableSize;
+static CGSize PTLastValidDrawableSize = {1280.0, 720.0};
+static BOOL PTDrawableSizeFixInstalled;
+
+static CGSize PTDrawableSizeGetter(id self, SEL selector) {
+    CGSize size = PTOriginalDrawableSize(self, selector);
+    if (size.width < 1.0 || size.height < 1.0) {
+        return PTLastValidDrawableSize;
+    }
+    return size;
+}
+
+static void PTDrawableSizeSetter(id self, SEL selector, CGSize size) {
+    if (size.width < 1.0 || size.height < 1.0) {
+        size = PTLastValidDrawableSize;
+    } else {
+        PTLastValidDrawableSize = size;
+    }
+    PTOriginalSetDrawableSize(self, selector, size);
+}
+
+BOOL PTInstallMetalLayerDrawableSizeFix(void) {
+    if (PTDrawableSizeFixInstalled) {
+        return YES;
+    }
+
+    Method setMethod = class_getInstanceMethod(
+        [CAMetalLayer class],
+        sel_registerName("setDrawableSize:"));
+    if (setMethod == NULL) {
+        return NO;
+    }
+    PTOriginalSetDrawableSize =
+        (PTSetDrawableSizeIMP)method_getImplementation(setMethod);
+    if (PTOriginalSetDrawableSize == NULL) {
+        return NO;
+    }
+    method_setImplementation(setMethod, (IMP)PTDrawableSizeSetter);
+
+    Method getMethod = class_getInstanceMethod(
+        [CAMetalLayer class],
+        sel_registerName("drawableSize"));
+    if (getMethod == NULL) {
+        return NO;
+    }
+    PTOriginalDrawableSize =
+        (PTDrawableSizeIMP)method_getImplementation(getMethod);
+    if (PTOriginalDrawableSize == NULL) {
+        return NO;
+    }
+    method_setImplementation(getMethod, (IMP)PTDrawableSizeGetter);
+
+    PTDrawableSizeFixInstalled = YES;
+    return YES;
+}
+
+#pragma mark - NSAlert runModal Auto-Answer
+
+typedef NSInteger (*PTAlertRunModalIMP)(id, SEL);
+
+static PTAlertRunModalIMP PTOriginalAlertRunModal;
+static BOOL PTAlertAutoAnswerInstalled;
+
+static NSInteger PTAlertRunModalAutoAnswer(id self, SEL selector) {
+    SEL messageSel = sel_registerName("messageText");
+    if ([self respondsToSelector:messageSel]) {
+        NSString *message = ((id(*)(id, SEL))objc_msgSend)(self, messageSel);
+        if (message != nil &&
+            ([message containsString:@"reopening its windows"] ||
+             [message containsString:@"重新打开它的窗口"])) {
+            return 1000; /* NSAlertFirstButtonReturn */
+        }
+    }
+    return PTOriginalAlertRunModal(self, selector);
+}
+
+BOOL PTInstallMetalAlertAutoAnswer(void) {
+    if (PTAlertAutoAnswerInstalled) {
+        return YES;
+    }
+    Class alertClass = objc_getClass("NSAlert");
+    if (alertClass == Nil) {
+        return NO;
+    }
+    Method method = class_getInstanceMethod(alertClass, sel_registerName("runModal"));
+    if (method == NULL) {
+        return NO;
+    }
+    PTOriginalAlertRunModal =
+        (PTAlertRunModalIMP)method_getImplementation(method);
+    if (PTOriginalAlertRunModal == NULL) {
+        return NO;
+    }
+    method_setImplementation(method, (IMP)PTAlertRunModalAutoAnswer);
+    PTAlertAutoAnswerInstalled = YES;
+    return YES;
 }
