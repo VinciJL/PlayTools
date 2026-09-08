@@ -119,6 +119,30 @@ __attribute__((visibility("hidden")))
 }
 
 - (CGRect) hook_nativeBounds {
+    if ([[PlaySettings shared] resolution] == 7) {
+        // Use dynamic scaler based on window size / configured resolution
+        UIWindow *window = nil;
+        for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if ([scene isKindOfClass:[UIWindowScene class]]) {
+                UIWindowScene *ws = (UIWindowScene *)scene;
+                for (UIWindow *w in ws.windows) {
+                    if (w.isKeyWindow) { window = w; break; }
+                }
+                if (window) break;
+            }
+        }
+        if (window) {
+            CGFloat winW = window.bounds.size.width;
+            CGFloat winH = window.bounds.size.height;
+            CGFloat confW = [[PlaySettings shared] windowSizeWidth];
+            CGFloat confH = [[PlaySettings shared] windowSizeHeight];
+            if (confW > 0 && confH > 0) {
+                CGFloat dynamicScaler = (winW / confW + winH / confH) / 2.0;
+                CGRect rect = [self hook_nativeBounds];
+                return [PlayScreen nativeBounds:rect withScaler:dynamicScaler];
+            }
+        }
+    }
     return [PlayScreen nativeBounds:[self hook_nativeBounds]];
 }
 
@@ -133,12 +157,57 @@ __attribute__((visibility("hidden")))
 }
 
 - (double) hook_nativeScale {
+    if ([[PlaySettings shared] resolution] == 7) {
+        // Dynamic scaler: window size / configured resolution
+        UIWindow *window = [[[UIApplication sharedApplication] connectedScenes]
+                            valueForKeyPath:@"@unionOfObjects.windows.@firstObject.@unionOfObjects.self.@firstObject"];
+        if (!window) {
+            for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+                if ([scene isKindOfClass:[UIWindowScene class]]) {
+                    UIWindowScene *ws = (UIWindowScene *)scene;
+                    for (UIWindow *w in ws.windows) {
+                        if (w.isKeyWindow) { window = w; break; }
+                    }
+                    if (window) break;
+                }
+            }
+        }
+        if (window) {
+            CGFloat winW = window.bounds.size.width;
+            CGFloat winH = window.bounds.size.height;
+            CGFloat confW = [[PlaySettings shared] windowSizeWidth];
+            CGFloat confH = [[PlaySettings shared] windowSizeHeight];
+            if (confW > 0 && confH > 0) {
+                return (winW / confW + winH / confH) / 2.0;
+            }
+        }
+    }
     return [[PlaySettings shared] customScaler];
 }
 
 - (double) hook_scale {
-    // Return rounded value of [[PlaySettings shared] customScaler]
     // Even though it is a double return, this will only accept .0 value or apps will crash
+    if ([[PlaySettings shared] resolution] == 7) {
+        UIWindow *window = nil;
+        for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if ([scene isKindOfClass:[UIWindowScene class]]) {
+                UIWindowScene *ws = (UIWindowScene *)scene;
+                for (UIWindow *w in ws.windows) {
+                    if (w.isKeyWindow) { window = w; break; }
+                }
+                if (window) break;
+            }
+        }
+        if (window) {
+            CGFloat winW = window.bounds.size.width;
+            CGFloat winH = window.bounds.size.height;
+            CGFloat confW = [[PlaySettings shared] windowSizeWidth];
+            CGFloat confH = [[PlaySettings shared] windowSizeHeight];
+            if (confW > 0 && confH > 0) {
+                return round((winW / confW + winH / confH) / 2.0);
+            }
+        }
+    }
     return round([[PlaySettings shared] customScaler]);
 }
 
