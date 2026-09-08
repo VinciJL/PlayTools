@@ -11,7 +11,9 @@
 #import "UIKit/UIKit.h"
 #import <PlayTools/PlayTools-Swift.h>
 #import "PTFakeMetaTouch.h"
+#if !TARGET_OS_MACCATALYST
 #import <VideoSubscriberAccount/VideoSubscriberAccount.h>
+#endif
 #import <AVFoundation/AVFoundation.h>
 #import <CoreMotion/CoreMotion.h>
 #import <GameController/GameController.h>
@@ -117,6 +119,33 @@ __attribute__((visibility("hidden")))
 }
 
 - (CGRect) hook_nativeBounds {
+    if ([[PlaySettings shared] resolution] == 7) {
+        @try {
+            UIWindow *window = nil;
+            for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+                if ([scene isKindOfClass:[UIWindowScene class]]) {
+                    UIWindowScene *ws = (UIWindowScene *)scene;
+                    for (UIWindow *w in ws.windows) {
+                        if (w.isKeyWindow) { window = w; break; }
+                    }
+                    if (window) break;
+                }
+            }
+            if (window) {
+                CGFloat winW = window.bounds.size.width;
+                CGFloat winH = window.bounds.size.height;
+                CGFloat confW = [[PlaySettings shared] windowSizeWidth];
+                CGFloat confH = [[PlaySettings shared] windowSizeHeight];
+                if (confW > 0 && confH > 0 && winW > 0 && winH > 0) {
+                    CGFloat dynamicScaler = (winW / confW + winH / confH) / 2.0;
+                    CGRect rect = [self hook_nativeBounds];
+                    return [PlayScreen nativeBounds:rect withScaler:dynamicScaler];
+                }
+            }
+        } @catch (NSException *e) {
+            // Window not available yet, fall through to static scaler
+        }
+    }
     return [PlayScreen nativeBounds:[self hook_nativeBounds]];
 }
 
@@ -131,12 +160,61 @@ __attribute__((visibility("hidden")))
 }
 
 - (double) hook_nativeScale {
+    if ([[PlaySettings shared] resolution] == 7) {
+        @try {
+            UIWindow *window = nil;
+            for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+                if ([scene isKindOfClass:[UIWindowScene class]]) {
+                    UIWindowScene *ws = (UIWindowScene *)scene;
+                    for (UIWindow *w in ws.windows) {
+                        if (w.isKeyWindow) { window = w; break; }
+                    }
+                    if (window) break;
+                }
+            }
+            if (window) {
+                CGFloat winW = window.bounds.size.width;
+                CGFloat winH = window.bounds.size.height;
+                CGFloat confW = [[PlaySettings shared] windowSizeWidth];
+                CGFloat confH = [[PlaySettings shared] windowSizeHeight];
+                if (confW > 0 && confH > 0 && winW > 0 && winH > 0) {
+                    return (winW / confW + winH / confH) / 2.0;
+                }
+            }
+        } @catch (NSException *e) {
+            // Window not available yet at startup, fall through to static scaler
+        }
+    }
     return [[PlaySettings shared] customScaler];
 }
 
 - (double) hook_scale {
-    // Return rounded value of [[PlaySettings shared] customScaler]
     // Even though it is a double return, this will only accept .0 value or apps will crash
+    if ([[PlaySettings shared] resolution] == 7) {
+        @try {
+            UIWindow *window = nil;
+            for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+                if ([scene isKindOfClass:[UIWindowScene class]]) {
+                    UIWindowScene *ws = (UIWindowScene *)scene;
+                    for (UIWindow *w in ws.windows) {
+                        if (w.isKeyWindow) { window = w; break; }
+                    }
+                    if (window) break;
+                }
+            }
+            if (window) {
+                CGFloat winW = window.bounds.size.width;
+                CGFloat winH = window.bounds.size.height;
+                CGFloat confW = [[PlaySettings shared] windowSizeWidth];
+                CGFloat confH = [[PlaySettings shared] windowSizeHeight];
+                if (confW > 0 && confH > 0 && winW > 0 && winH > 0) {
+                    return round((winW / confW + winH / confH) / 2.0);
+                }
+            }
+        } @catch (NSException *e) {
+            // Window not available yet, fall through to static scaler
+        }
+    }
     return round([[PlaySettings shared] customScaler]);
 }
 
@@ -157,9 +235,11 @@ __attribute__((visibility("hidden")))
     return NO;
 }
 
+#if !TARGET_OS_MACCATALYST
 - (void) hook_setCurrentSubscription:(VSSubscription *)currentSubscription {
     // do nothing
 }
+#endif
 
 - (NSString *)hook_stringByReplacingOccurrencesOfRegularExpressionPattern:(NSString *)pattern
                                                              withTemplate:(NSString *)template
@@ -257,11 +337,40 @@ bool menuWasCreated = false;
 + (void)load {
     // This might need refactor soon
     if(@available(iOS 16.3, *)) {
+        NSInteger resolution = [[PlaySettings shared] resolution];
         if ([[PlaySettings shared] resizableWindow]) {
+            // Mode 6 & 7: allow non-fullscreen window
             [objc_getClass("_UIApplicationInfoParser") swizzleInstanceMethod:NSSelectorFromString(@"requiresFullScreen") withMethod:@selector(hook_requiresFullScreen)];
-            [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(bounds) withMethod:@selector(hook_boundsResizable)];
             [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(nativeScale) withMethod:@selector(hook_nativeScale)];
             [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(scale) withMethod:@selector(hook_scale)];
+
+            if (resolution == 6) {
+                // Mode 6: game renders at window size
+                [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(bounds) withMethod:@selector(hook_boundsResizable)];
+            } else {
+                // Mode 7: game renders at fixed configured resolution, window freely resizable
+                if ([[PlaySettings shared] adaptiveDisplay]) {
+                    if ([[PlaySettings shared] inverseScreenValues]) {
+                        if(@available(iOS 17.1, *))
+                            [objc_getClass("FBSSceneSettingsCore") swizzleExchangeMethod:@selector(frame) withMethod:@selector(hook_frameDefault)];
+                        else
+                            [objc_getClass("FBSSceneSettings") swizzleInstanceMethod:@selector(frame) withMethod:@selector(hook_frameDefault)];
+                        [objc_getClass("FBSSceneSettings") swizzleInstanceMethod:@selector(bounds) withMethod:@selector(hook_boundsDefault)];
+                        [objc_getClass("FBSDisplayMode") swizzleInstanceMethod:@selector(size) withMethod:@selector(hook_sizeDelfault)];
+                        [objc_getClass("UIDevice") swizzleInstanceMethod:@selector(orientation) withMethod:@selector(hook_orientation)];
+                        [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(nativeBounds) withMethod:@selector(hook_nativeBoundsDefault)];
+                    } else {
+                        if(@available(iOS 17.1, *))
+                            [objc_getClass("FBSSceneSettingsCore") swizzleExchangeMethod:@selector(frame) withMethod:@selector(hook_frame)];
+                        else
+                            [objc_getClass("FBSSceneSettings") swizzleInstanceMethod:@selector(frame) withMethod:@selector(hook_frame)];
+                        [objc_getClass("FBSSceneSettings") swizzleInstanceMethod:@selector(bounds) withMethod:@selector(hook_bounds)];
+                        [objc_getClass("FBSDisplayMode") swizzleInstanceMethod:@selector(size) withMethod:@selector(hook_size)];
+                        [objc_getClass("UIDevice") swizzleInstanceMethod:@selector(orientation) withMethod:@selector(hook_orientation)];
+                        [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(nativeBounds) withMethod:@selector(hook_nativeBounds)];
+                    }
+                }
+            }
         }
         else if ([[PlaySettings shared] adaptiveDisplay]) {
             // This is an experimental fix
@@ -338,7 +447,9 @@ bool menuWasCreated = false;
     // [objc_getClass("UIDevice") swizzleInstanceMethod:@selector(userInterfaceIdiom) withMethod:@selector(hook_userInterfaceIdiom)];
     // [objc_getClass("UITraitCollection") swizzleInstanceMethod:@selector(userInterfaceIdiom) withMethod:@selector(hook_userInterfaceIdiom)];
 
+#if !TARGET_OS_MACCATALYST
     [objc_getClass("VSSubscriptionRegistrationCenter") swizzleInstanceMethod:@selector(setCurrentSubscription:) withMethod:@selector(hook_setCurrentSubscription:)];
+#endif
 
     if (PlayInfo.isUnrealEngine) {
         // Fix NSRegularExpression crash when system language is set to Chinese

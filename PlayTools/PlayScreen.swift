@@ -111,6 +111,10 @@ public class PlayScreen: NSObject {
         return rect.toAspectRatio(CGFloat((customScaler)))
     }
 
+    @objc public static func nativeBounds(_ rect: CGRect, withScaler scaler: CGFloat) -> CGRect {
+        return rect.toAspectRatio(scaler)
+    }
+
     @objc public static func width(_ size: Int) -> Int {
         return size
     }
