@@ -335,14 +335,21 @@ private let MAA_TOOLS_VERSION = 4
             UnsafeMutableRawPointer(rgbaBuffer).copyMemory(from: src, byteCount: rgbaLength)
         }
 
-        // Composite window image (UI overlays) on top of Metal content
-        if let windowImage = await AKInterface.shared?.windowImage() {
+        // Render all UIKit layers (including WebView) at fixed resolution
+        if let keyWindow = await MainActor.run(body: { PlayScreen.shared.keyWindow }) {
             let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrderDefault.rawValue
             let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
             if let ctx = CGContext(data: rgbaBuffer, width: frame.width, height: frame.height,
                                    bitsPerComponent: 8, bytesPerRow: 4 * frame.width,
                                    space: colorSpace, bitmapInfo: bitmapInfo) {
-                ctx.draw(windowImage, in: CGRect(x: 0, y: 0, width: frame.width, height: frame.height))
+                let winSize = keyWindow.bounds.size
+                if winSize.width > 0 && winSize.height > 0 {
+                    ctx.scaleBy(x: CGFloat(frame.width) / winSize.width,
+                                y: CGFloat(frame.height) / winSize.height)
+                    await MainActor.run {
+                        keyWindow.layer.render(in: ctx)
+                    }
+                }
             }
         }
 

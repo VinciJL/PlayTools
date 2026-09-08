@@ -203,6 +203,7 @@ class AKPlugin: NSObject, Plugin {
         }
     }
 
+
     var windowContentRect: CGRect {
         guard let window = NSApplication.shared.windows.first else {
             return CGRect()
