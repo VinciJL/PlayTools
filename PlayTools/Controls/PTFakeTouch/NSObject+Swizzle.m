@@ -119,33 +119,6 @@ __attribute__((visibility("hidden")))
 }
 
 - (CGRect) hook_nativeBounds {
-    if ([[PlaySettings shared] resolution] == 7) {
-        @try {
-            UIWindow *window = nil;
-            for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
-                if ([scene isKindOfClass:[UIWindowScene class]]) {
-                    UIWindowScene *ws = (UIWindowScene *)scene;
-                    for (UIWindow *w in ws.windows) {
-                        if (w.isKeyWindow) { window = w; break; }
-                    }
-                    if (window) break;
-                }
-            }
-            if (window) {
-                CGFloat winW = window.bounds.size.width;
-                CGFloat winH = window.bounds.size.height;
-                CGFloat confW = [[PlaySettings shared] windowSizeWidth];
-                CGFloat confH = [[PlaySettings shared] windowSizeHeight];
-                if (confW > 0 && confH > 0 && winW > 0 && winH > 0) {
-                    CGFloat dynamicScaler = (winW / confW + winH / confH) / 2.0;
-                    CGRect rect = [self hook_nativeBounds];
-                    return [PlayScreen nativeBounds:rect withScaler:dynamicScaler];
-                }
-            }
-        } @catch (NSException *e) {
-            // Window not available yet, fall through to static scaler
-        }
-    }
     return [PlayScreen nativeBounds:[self hook_nativeBounds]];
 }
 
@@ -160,61 +133,11 @@ __attribute__((visibility("hidden")))
 }
 
 - (double) hook_nativeScale {
-    if ([[PlaySettings shared] resolution] == 7) {
-        @try {
-            UIWindow *window = nil;
-            for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
-                if ([scene isKindOfClass:[UIWindowScene class]]) {
-                    UIWindowScene *ws = (UIWindowScene *)scene;
-                    for (UIWindow *w in ws.windows) {
-                        if (w.isKeyWindow) { window = w; break; }
-                    }
-                    if (window) break;
-                }
-            }
-            if (window) {
-                CGFloat winW = window.bounds.size.width;
-                CGFloat winH = window.bounds.size.height;
-                CGFloat confW = [[PlaySettings shared] windowSizeWidth];
-                CGFloat confH = [[PlaySettings shared] windowSizeHeight];
-                if (confW > 0 && confH > 0 && winW > 0 && winH > 0) {
-                    return (winW / confW + winH / confH) / 2.0;
-                }
-            }
-        } @catch (NSException *e) {
-            // Window not available yet at startup, fall through to static scaler
-        }
-    }
     return [[PlaySettings shared] customScaler];
 }
 
 - (double) hook_scale {
     // Even though it is a double return, this will only accept .0 value or apps will crash
-    if ([[PlaySettings shared] resolution] == 7) {
-        @try {
-            UIWindow *window = nil;
-            for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
-                if ([scene isKindOfClass:[UIWindowScene class]]) {
-                    UIWindowScene *ws = (UIWindowScene *)scene;
-                    for (UIWindow *w in ws.windows) {
-                        if (w.isKeyWindow) { window = w; break; }
-                    }
-                    if (window) break;
-                }
-            }
-            if (window) {
-                CGFloat winW = window.bounds.size.width;
-                CGFloat winH = window.bounds.size.height;
-                CGFloat confW = [[PlaySettings shared] windowSizeWidth];
-                CGFloat confH = [[PlaySettings shared] windowSizeHeight];
-                if (confW > 0 && confH > 0 && winW > 0 && winH > 0) {
-                    return round((winW / confW + winH / confH) / 2.0);
-                }
-            }
-        } @catch (NSException *e) {
-            // Window not available yet, fall through to static scaler
-        }
-    }
     return round([[PlaySettings shared] customScaler]);
 }
 
@@ -348,25 +271,15 @@ bool menuWasCreated = false;
                 // Mode 6: game renders at window size
                 [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(bounds) withMethod:@selector(hook_boundsResizable)];
             } else {
-                // Mode 7: game renders at fixed configured resolution, window freely resizable
+                // Mode 7: fixed configured render resolution, freely resizable window.
+                // Only the screen metrics that drive the render resolution are
+                // pinned; window and scene stay real so the game view always fills
+                // the window and the compositor stretches the fixed-size drawable
+                // to fit. The drawable itself is pinned via PTSetPinnedDrawableSize.
                 if ([[PlaySettings shared] adaptiveDisplay]) {
                     if ([[PlaySettings shared] inverseScreenValues]) {
-                        if(@available(iOS 17.1, *))
-                            [objc_getClass("FBSSceneSettingsCore") swizzleExchangeMethod:@selector(frame) withMethod:@selector(hook_frameDefault)];
-                        else
-                            [objc_getClass("FBSSceneSettings") swizzleInstanceMethod:@selector(frame) withMethod:@selector(hook_frameDefault)];
-                        [objc_getClass("FBSSceneSettings") swizzleInstanceMethod:@selector(bounds) withMethod:@selector(hook_boundsDefault)];
-                        [objc_getClass("FBSDisplayMode") swizzleInstanceMethod:@selector(size) withMethod:@selector(hook_sizeDelfault)];
-                        [objc_getClass("UIDevice") swizzleInstanceMethod:@selector(orientation) withMethod:@selector(hook_orientation)];
                         [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(nativeBounds) withMethod:@selector(hook_nativeBoundsDefault)];
                     } else {
-                        if(@available(iOS 17.1, *))
-                            [objc_getClass("FBSSceneSettingsCore") swizzleExchangeMethod:@selector(frame) withMethod:@selector(hook_frame)];
-                        else
-                            [objc_getClass("FBSSceneSettings") swizzleInstanceMethod:@selector(frame) withMethod:@selector(hook_frame)];
-                        [objc_getClass("FBSSceneSettings") swizzleInstanceMethod:@selector(bounds) withMethod:@selector(hook_bounds)];
-                        [objc_getClass("FBSDisplayMode") swizzleInstanceMethod:@selector(size) withMethod:@selector(hook_size)];
-                        [objc_getClass("UIDevice") swizzleInstanceMethod:@selector(orientation) withMethod:@selector(hook_orientation)];
                         [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(nativeBounds) withMethod:@selector(hook_nativeBounds)];
                     }
                 }

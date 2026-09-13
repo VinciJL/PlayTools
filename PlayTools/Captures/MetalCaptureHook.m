@@ -185,14 +185,24 @@ BOOL PTInstallFramebufferOnlyOverride(void) {
 #pragma mark - CAMetalLayer setDrawableSize: 0x0 Guard
 
 typedef void (*PTSetDrawableSizeIMP)(id, SEL, CGSize);
+typedef void (*PTSetContentsGravityIMP)(id, SEL, id);
 typedef CGSize (*PTDrawableSizeIMP)(id, SEL);
 
 static PTSetDrawableSizeIMP PTOriginalSetDrawableSize;
+static PTSetContentsGravityIMP PTOriginalSetContentsGravity;
 static PTDrawableSizeIMP PTOriginalDrawableSize;
 static CGSize PTLastValidDrawableSize = {1280.0, 720.0};
+static CGSize PTPinnedDrawableSize = {0.0, 0.0};
 static BOOL PTDrawableSizeFixInstalled;
 
+static BOOL PTHasPinnedDrawableSize(void) {
+    return PTPinnedDrawableSize.width >= 1.0 && PTPinnedDrawableSize.height >= 1.0;
+}
+
 static CGSize PTDrawableSizeGetter(id self, SEL selector) {
+    if (PTHasPinnedDrawableSize()) {
+        return PTPinnedDrawableSize;
+    }
     CGSize size = PTOriginalDrawableSize(self, selector);
     if (size.width < 1.0 || size.height < 1.0) {
         return PTLastValidDrawableSize;
@@ -201,12 +211,27 @@ static CGSize PTDrawableSizeGetter(id self, SEL selector) {
 }
 
 static void PTDrawableSizeSetter(id self, SEL selector, CGSize size) {
-    if (size.width < 1.0 || size.height < 1.0) {
+    if (PTHasPinnedDrawableSize()) {
+        size = PTPinnedDrawableSize;
+        // Force stretch-to-fill so the fixed-size drawable always covers the
+        // (possibly larger or smaller) layer bounds.
+        if (PTOriginalSetContentsGravity != NULL) {
+            PTOriginalSetContentsGravity(self, sel_registerName("setContentsGravity:"),
+                                         kCAGravityResize);
+        }
+    } else if (size.width < 1.0 || size.height < 1.0) {
         size = PTLastValidDrawableSize;
     } else {
         PTLastValidDrawableSize = size;
     }
     PTOriginalSetDrawableSize(self, selector, size);
+}
+
+static void PTContentsGravitySetter(id self, SEL selector, id gravity) {
+    if (PTHasPinnedDrawableSize()) {
+        gravity = kCAGravityResize;
+    }
+    PTOriginalSetContentsGravity(self, selector, gravity);
 }
 
 BOOL PTInstallMetalLayerDrawableSizeFix(void) {
@@ -240,7 +265,26 @@ BOOL PTInstallMetalLayerDrawableSizeFix(void) {
     }
     method_setImplementation(getMethod, (IMP)PTDrawableSizeGetter);
 
+    Method gravityMethod = class_getInstanceMethod(
+        [CAMetalLayer class],
+        sel_registerName("setContentsGravity:"));
+    if (gravityMethod != NULL) {
+        PTOriginalSetContentsGravity =
+            (PTSetContentsGravityIMP)method_getImplementation(gravityMethod);
+        if (PTOriginalSetContentsGravity != NULL) {
+            method_setImplementation(gravityMethod, (IMP)PTContentsGravitySetter);
+        }
+    }
+
     PTDrawableSizeFixInstalled = YES;
+    return YES;
+}
+
+BOOL PTSetPinnedDrawableSize(CGSize size) {
+    if (!PTInstallMetalLayerDrawableSizeFix()) {
+        return NO;
+    }
+    PTPinnedDrawableSize = size;
     return YES;
 }
 

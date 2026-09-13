@@ -18,6 +18,19 @@ public class PlayCover: NSObject {
         PlayInput.shared.initialize()
         DiscordIPC.shared.initialize()
 
+        if PlaySettings.shared.resolution == 7 {
+            // Fixed render resolution with a freely resizable window: pin the
+            // game's drawable size so window resizing never changes the render
+            // resolution. The compositor stretches the drawable to fill the
+            // window, whose aspect ratio is locked to the configured resolution.
+            let scaler = CGFloat(PlaySettings.shared.customScaler)
+            let pinWidth = PlaySettings.shared.windowSizeWidth * scaler
+            let pinHeight = PlaySettings.shared.windowSizeHeight * scaler
+            if pinWidth > 0 && pinHeight > 0 {
+                _ = PTSetPinnedDrawableSize(CGSize(width: pinWidth, height: pinHeight))
+            }
+        }
+
         if ArknightsMetalCapture.installation == true {
             print("[PlayTools] Installed Metal capture hooks.")
         }
