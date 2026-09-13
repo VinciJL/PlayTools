@@ -190,8 +190,41 @@ private let MAA_TOOLS_VERSION = 4
     // swiftlint:enable line_length
 
     private func screencap(to connection: NWConnection) async throws {
-        let data = await screenshot() ?? Data()
+        // Prefer the Metal capture so the screenshot is pixel-exact with the
+        // game's render output; fall back to the window image when the Metal
+        // path is unavailable (other games, capture disabled, or failure).
+        var image = await mtlScreenshot()
+        if image == nil {
+            image = await screenshot()
+        }
+        let data = image ?? Data()
         try await connection.send(content: data.count.u32Bytes + data)
+    }
+
+    private func mtlScreenshot() async -> Data? {
+        let frame: MetalCapture
+        do {
+            frame = try await ArknightsMetalCapture.shared.capture()
+        } catch {
+            logger.error("Metal capture failed for screencap: \(error.localizedDescription)")
+            return nil
+        }
+
+        let length = 4 * frame.height * frame.width
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: length)
+        UnsafeMutableRawPointer(buffer).copyMemory(from: frame.buffer.contents(), byteCount: length)
+
+        // The drawable texture is bgra8Unorm; swap channels so the SCRN
+        // payload is RGBA as MAA expects
+        var srcBuffer = vImage_Buffer(data: buffer,
+                                      height: UInt(frame.height), width: UInt(frame.width),
+                                      rowBytes: 4 * frame.width)
+        var permuteMap: [UInt8] = [2, 1, 0, 3]  // B,G,R,A -> R,G,B,A
+        vImagePermuteChannels_ARGB8888(
+            &srcBuffer, &srcBuffer, &permuteMap, vImage_Flags(kvImageNoFlags))
+
+        return Data(bytesNoCopy: buffer, count: length,
+                    deallocator: .custom { pointer, _ in pointer.deallocate() })
     }
 
     private func screenshot() async -> Data? {

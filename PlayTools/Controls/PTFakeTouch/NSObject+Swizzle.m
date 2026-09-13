@@ -267,11 +267,13 @@ bool menuWasCreated = false;
                 [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(bounds) withMethod:@selector(hook_boundsResizable)];
             } else {
                 // Mode 7: fixed configured render resolution, freely resizable window.
-                // Only the screen metrics that drive the render resolution are pinned;
-                // window and scene stay real so the game view always fills the window
-                // and the compositor stretches the fixed-size drawable to fit. The
-                // drawable itself is pinned via PTSetPinnedDrawableSize.
+                // The drawable is pinned via PTSetPinnedDrawableSize and the game
+                // view's content scale is derived dynamically, so Unity's render
+                // size stays fixed. UIScreen.bounds tracks the live window so
+                // UIKit content (web views, native overlays) keeps fitting the
+                // resizable window.
                 [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(nativeBounds) withMethod:@selector(hook_nativeBounds)];
+                [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(bounds) withMethod:@selector(hook_boundsResizable)];
             }
         }
         else if ([[PlaySettings shared] adaptiveDisplay]) {
