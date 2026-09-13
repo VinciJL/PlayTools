@@ -71,19 +71,26 @@ enum CanvasDisplayScaler {
         transform.ty = (scale - 1) * canvas.height / 2
         // Top-level views: the root view plus presentation containers, so
         // presented overlays (dialogs, web views) scale with the canvas
-        for subview in window.subviews where subview.transform != transform {
+        let subviews = window.subviews
+        let preTransforms = subviews.map { Double($0.transform.a) }
+        for subview in subviews where subview.transform != transform {
             subview.transform = transform
         }
+        let postTransforms = subviews.map { Double($0.transform.a) }
         window.layer.masksToBounds = false
-        logDiagnostics(content: content.size, canvas: canvas, scale: scale)
+        logDiagnostics(content: content.size, canvas: canvas, scale: scale,
+                       pre: preTransforms, post: postTransforms)
     }
 
     private static var lastLogged = ""
 
     /// Temporary diagnostics for the canvas scaling (read /tmp/playscaler.log)
-    private static func logDiagnostics(content: CGSize, canvas: CGSize, scale: CGFloat) {
-        let line = String(format: "content=%.0fx%.0f canvas=%.0fx%.0f scale=%.4f\n",
-                          content.width, content.height, canvas.width, canvas.height, scale)
+    private static func logDiagnostics(content: CGSize, canvas: CGSize, scale: CGFloat,
+                                       pre: [Double], post: [Double]) {
+        let preText = pre.map { String(format: "%.3f", $0) }.joined(separator: ",")
+        let postText = post.map { String(format: "%.3f", $0) }.joined(separator: ",")
+        let line = String(format: "content=%.0fx%.0f scale=%.4f n=%d pre=[%@] post=[%@]\n",
+                          content.width, content.height, scale, pre.count, preText, postText)
         guard line != lastLogged else { return }
         lastLogged = line
         let path = "/tmp/playscaler.log"
