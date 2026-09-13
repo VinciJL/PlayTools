@@ -259,9 +259,20 @@ bool menuWasCreated = false;
     if(@available(iOS 16.3, *)) {
         if ([[PlaySettings shared] resizableWindow]) {
             [objc_getClass("_UIApplicationInfoParser") swizzleInstanceMethod:NSSelectorFromString(@"requiresFullScreen") withMethod:@selector(hook_requiresFullScreen)];
-            [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(bounds) withMethod:@selector(hook_boundsResizable)];
             [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(nativeScale) withMethod:@selector(hook_nativeScale)];
             [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(scale) withMethod:@selector(hook_scale)];
+
+            if ([[PlaySettings shared] resolution] == 6) {
+                // Mode 6: game renders at the live window size
+                [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(bounds) withMethod:@selector(hook_boundsResizable)];
+            } else {
+                // Mode 7: fixed configured render resolution, freely resizable window.
+                // Only the screen metrics that drive the render resolution are pinned;
+                // window and scene stay real so the game view always fills the window
+                // and the compositor stretches the fixed-size drawable to fit. The
+                // drawable itself is pinned via PTSetPinnedDrawableSize.
+                [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(nativeBounds) withMethod:@selector(hook_nativeBounds)];
+            }
         }
         else if ([[PlaySettings shared] adaptiveDisplay]) {
             // This is an experimental fix
