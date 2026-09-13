@@ -190,41 +190,8 @@ private let MAA_TOOLS_VERSION = 4
     // swiftlint:enable line_length
 
     private func screencap(to connection: NWConnection) async throws {
-        // Prefer the Metal capture so the screenshot is pixel-exact with the
-        // game's render output; fall back to the window image when the Metal
-        // path is unavailable (other games, capture disabled, or failure).
-        var image = await mtlScreenshot()
-        if image == nil {
-            image = await screenshot()
-        }
-        let data = image ?? Data()
+        let data = await screenshot() ?? Data()
         try await connection.send(content: data.count.u32Bytes + data)
-    }
-
-    private func mtlScreenshot() async -> Data? {
-        let frame: MetalCapture
-        do {
-            frame = try await ArknightsMetalCapture.shared.capture()
-        } catch {
-            logger.error("Metal capture failed for screencap: \(error.localizedDescription)")
-            return nil
-        }
-
-        let length = 4 * frame.height * frame.width
-        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: length)
-        UnsafeMutableRawPointer(buffer).copyMemory(from: frame.buffer.contents(), byteCount: length)
-
-        // The drawable texture is bgra8Unorm; swap channels so the SCRN
-        // payload is RGBA as MAA expects
-        var srcBuffer = vImage_Buffer(data: buffer,
-                                      height: UInt(frame.height), width: UInt(frame.width),
-                                      rowBytes: 4 * frame.width)
-        var permuteMap: [UInt8] = [2, 1, 0, 3]  // B,G,R,A -> R,G,B,A
-        vImagePermuteChannels_ARGB8888(
-            &srcBuffer, &srcBuffer, &permuteMap, vImage_Flags(kvImageNoFlags))
-
-        return Data(bytesNoCopy: buffer, count: length,
-                    deallocator: .custom { pointer, _ in pointer.deallocate() })
     }
 
     private func screenshot() async -> Data? {
@@ -233,19 +200,33 @@ private let MAA_TOOLS_VERSION = 4
             return nil
         }
 
-        let length = 4 * height * width
-        let bytesPerRow = 4 * width
-        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: length)
-        let bitmapInfo = CGImageAlphaInfo.noneSkipLast.rawValue | CGBitmapInfo.byteOrderDefault.rawValue
+        // vImage directly from the CGImage: the capture path composites the
+        // game and UIKit content in one image and scales it to the configured
+        // resolution, so no per-capture re-rendering is needed here
+        var srcBuffer = vImage_Buffer()
         let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
-        let context = CGContext(data: buffer, width: width, height: height,
-                                bitsPerComponent: 8, bytesPerRow: bytesPerRow,
-                                space: colorSpace, bitmapInfo: bitmapInfo)
-        context?.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        var format = vImage_CGImageFormat(
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            colorSpace: colorSpace,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue |
+                                     CGBitmapInfo.byteOrder32Little.rawValue))!
+        let initErr = vImageBuffer_InitWithCGImage(
+            &srcBuffer, &format, nil, image, vImage_Flags(kvImageNoFlags))
+        guard initErr == kvImageNoError else {
+            logger.error("vImageBuffer_InitWithCGImage failed: \(initErr)")
+            return nil
+        }
 
-        let data = Data(bytesNoCopy: buffer, count: length, deallocator: .free)
+        // BGRA -> RGBA (byteOrder32Little + noneSkipLast = B,G,R,X in memory)
+        var permuteMap: [UInt8] = [2, 1, 0, 3]
+        vImagePermuteChannels_ARGB8888(
+            &srcBuffer, &srcBuffer, &permuteMap, vImage_Flags(kvImageNoFlags))
 
-        return data
+        let length = 4 * Int(srcBuffer.height) * Int(srcBuffer.width)
+        let pointer = srcBuffer.data!
+        return Data(bytesNoCopy: pointer, count: length,
+                    deallocator: .custom { buffer, _ in buffer.deallocate() })
     }
 
     private func screensize(to connection: NWConnection) async throws {

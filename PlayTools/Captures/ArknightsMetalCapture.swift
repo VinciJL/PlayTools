@@ -104,7 +104,6 @@ final class ArknightsMetalCapture {
         )
         encoder.endEncoding()
 
-        let frame = MetalCapture(width: width, height: height, buffer: buffer)
         commandBuffer.addCompletedHandler { commandBuffer in
             if let error = commandBuffer.error {
                 continuation.resume(throwing: error)
@@ -115,12 +114,7 @@ final class ArknightsMetalCapture {
                 fatalError("Metal blit incomplete without any error")
             }
 
-            // Overlay the window's UIKit content before delivering the frame
-            DispatchQueue.main.async {
-                UICaptureCompositor.shared.compositeOverFrame(
-                    width: width, height: height, buffer: buffer.buffer.contents())
-                continuation.resume(returning: frame)
-            }
+            continuation.resume(returning: .init(width: width, height: height, buffer: buffer))
         }
         commandBuffer.commit()
     }

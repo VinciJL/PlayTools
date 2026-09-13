@@ -16,6 +16,8 @@ private struct AKAppSettingsData: Codable {
     var hideTitleBar: Bool?
     var floatingWindow: Bool?
     var resolution: Int?
+    var windowWidth: Int?
+    var windowHeight: Int?
     var resizableAspectRatioWidth: Int?
     var resizableAspectRatioHeight: Int?
 }
@@ -175,8 +177,18 @@ class AKPlugin: NSObject, Plugin {
         }
         let config = SCStreamConfiguration()
         let scale = CGFloat(info.pointPixelScale)
-        config.width = max(1, Int(ceil(size.width * scale)))
-        config.height = max(1, Int(ceil(size.height * scale)))
+        if Self.akAppSettingsData?.resolution == 7,
+           let fixedWidth = Self.akAppSettingsData?.windowWidth, fixedWidth > 0,
+           let fixedHeight = Self.akAppSettingsData?.windowHeight, fixedHeight > 0 {
+            // Mode 7 keeps a fixed render resolution: let the capture path
+            // scale the composited window content to that exact size so the
+            // output resolution is stable regardless of the window size
+            config.width = fixedWidth
+            config.height = fixedHeight
+        } else {
+            config.width = max(1, Int(ceil(size.width * scale)))
+            config.height = max(1, Int(ceil(size.height * scale)))
+        }
         config.sourceRect.origin.y += info.contentRect.height - size.height
         config.sourceRect.size = size
         config.pixelFormat = kCVPixelFormatType_32BGRA
