@@ -66,26 +66,6 @@ final class ArknightsMetalCapture {
         state.initialize(commandQueue: commandBuffer.commandQueue)
     }
 
-    private var compositeTexture: MTLTexture?
-    private var compositeTextureSize = CGSize.zero
-
-    private func compositingTexture(for source: MTLTexture) -> MTLTexture? {
-        let size = CGSize(width: source.width, height: source.height)
-        if let existing = compositeTexture, compositeTextureSize == size {
-            return existing
-        }
-        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat: .bgra8Unorm,
-            width: source.width,
-            height: source.height,
-            mipmapped: false)
-        descriptor.usage = [.renderTarget, .shaderRead, .shaderWrite]
-        descriptor.storageMode = .private
-        compositeTexture = source.device.makeTexture(descriptor: descriptor)
-        compositeTextureSize = size
-        return compositeTexture
-    }
-
     private func observePresent(_ object: Any) {
         guard let drawable = object as? CAMetalDrawable else { return }
 
@@ -93,11 +73,6 @@ final class ArknightsMetalCapture {
         guard texture.pixelFormat == .bgra8Unorm,
               texture.sampleCount == 1,
               !drawable.layer.framebufferOnly else { return }
-
-        if let gameQueue = state.currentCommandQueue() {
-            UICaptureCompositor.shared.configure(device: texture.device, queue: gameQueue)
-        }
-        UICaptureCompositor.shared.updateUI()
 
         guard let (commandQueue, continuation) = state.take() else {
             return
@@ -109,7 +84,6 @@ final class ArknightsMetalCapture {
         let length = bytesPerRow * height
 
         guard let buffer = buffers.acquire(from: texture.device, length: length),
-              let composite = compositingTexture(for: texture),
               let commandBuffer = commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeBlitCommandEncoder()
         else {
@@ -117,39 +91,20 @@ final class ArknightsMetalCapture {
             return
         }
 
-        // 1) Copy the game frame into a texture we can render into
         encoder.copy(
             from: texture,
             sourceSlice: 0,
             sourceLevel: 0,
             sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
             sourceSize: MTLSize(width: width, height: height, depth: 1),
-            to: composite,
-            destinationSlice: 0,
-            destinationLevel: 0,
-            destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0)
+            to: buffer.buffer,
+            destinationOffset: 0,
+            destinationBytesPerRow: bytesPerRow,
+            destinationBytesPerImage: 0
         )
         encoder.endEncoding()
 
-        // 2) Overlay the window's UIKit content (no-op when not ready)
-        UICaptureCompositor.shared.composite(over: composite, commandBuffer: commandBuffer)
-
-        // 3) Read the composited frame back to the CPU-visible buffer
-        if let readback = commandBuffer.makeBlitCommandEncoder() {
-            readback.copy(
-                from: composite,
-                sourceSlice: 0,
-                sourceLevel: 0,
-                sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
-                sourceSize: MTLSize(width: width, height: height, depth: 1),
-                to: buffer.buffer,
-                destinationOffset: 0,
-                destinationBytesPerRow: bytesPerRow,
-                destinationBytesPerImage: 0
-            )
-            readback.endEncoding()
-        }
-
+        let frame = MetalCapture(width: width, height: height, buffer: buffer)
         commandBuffer.addCompletedHandler { commandBuffer in
             if let error = commandBuffer.error {
                 continuation.resume(throwing: error)
@@ -160,7 +115,12 @@ final class ArknightsMetalCapture {
                 fatalError("Metal blit incomplete without any error")
             }
 
-            continuation.resume(returning: .init(width: width, height: height, buffer: buffer))
+            // Overlay the window's UIKit content before delivering the frame
+            DispatchQueue.main.async {
+                UICaptureCompositor.shared.compositeOverFrame(
+                    width: width, height: height, buffer: buffer.buffer.contents())
+                continuation.resume(returning: frame)
+            }
         }
         commandBuffer.commit()
     }
