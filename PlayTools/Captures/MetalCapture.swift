@@ -169,4 +169,13 @@ final class MetalCaptureState: @unchecked Sendable {
         os_unfair_lock_unlock(lock)
         return (commandQueue, continuation)
     }
+
+    func currentCommandQueue() -> MTLCommandQueue? {
+        guard os_unfair_lock_trylock(lock) else {
+            return nil
+        }
+        let queue = commandQueue
+        os_unfair_lock_unlock(lock)
+        return queue
+    }
 }

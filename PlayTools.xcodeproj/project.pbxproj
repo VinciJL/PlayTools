@@ -18,6 +18,7 @@
 		83FFD5F130474C12007E2037 /* MetalCaptureHook.m in Sources */ = {isa = PBXBuildFile; fileRef = 83FFD5F030474C12007E2037 /* MetalCaptureHook.m */; };
 		83FFD5F230474C12007E2037 /* MetalCaptureHook.h in Headers */ = {isa = PBXBuildFile; fileRef = 83FFD5EF30474C12007E2037 /* MetalCaptureHook.h */; };
 		83FFD5F430474C76007E2037 /* ArknightsMetalCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83FFD5F330474C76007E2037 /* ArknightsMetalCapture.swift */; };
+		D15AB1E12AB0000000000006 /* UICaptureCompositor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15AB1E12AB0000000000005 /* UICaptureCompositor.swift */; };
 		D15AB1E12AB0000000000003 /* DrawableSizePin.h in Headers */ = {isa = PBXBuildFile; fileRef = D15AB1E12AB0000000000001 /* DrawableSizePin.h */; };
 		D15AB1E12AB0000000000004 /* DrawableSizePin.m in Sources */ = {isa = PBXBuildFile; fileRef = D15AB1E12AB0000000000002 /* DrawableSizePin.m */; };
 		83FFD5F6304751AE007E2037 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 83FFD5F5304751AE007E2037 /* CoreGraphics.framework */; };
@@ -123,6 +124,7 @@
 		83FFD5EF30474C12007E2037 /* MetalCaptureHook.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MetalCaptureHook.h; sourceTree = "<group>"; };
 		83FFD5F030474C12007E2037 /* MetalCaptureHook.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MetalCaptureHook.m; sourceTree = "<group>"; };
 		83FFD5F330474C76007E2037 /* ArknightsMetalCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArknightsMetalCapture.swift; sourceTree = "<group>"; };
+		D15AB1E12AB0000000000005 /* UICaptureCompositor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UICaptureCompositor.swift; sourceTree = "<group>"; };
 		D15AB1E12AB0000000000001 /* DrawableSizePin.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DrawableSizePin.h; sourceTree = "<group>"; };
 		D15AB1E12AB0000000000002 /* DrawableSizePin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = DrawableSizePin.m; sourceTree = "<group>"; };
 		83FFD5F5304751AE007E2037 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk/System/Library/Frameworks/CoreGraphics.framework; sourceTree = DEVELOPER_DIR; };
@@ -249,6 +251,7 @@
 				83FFD5EF30474C12007E2037 /* MetalCaptureHook.h */,
 				83FFD5F030474C12007E2037 /* MetalCaptureHook.m */,
 				83FFD5F330474C76007E2037 /* ArknightsMetalCapture.swift */,
+				D15AB1E12AB0000000000005 /* UICaptureCompositor.swift */,
 				83FFD5F9304822DB007E2037 /* MetalCapture.swift */,
 			);
 			path = Captures;
@@ -813,6 +816,7 @@
 				9555ED312C058E28006E469C /* DebugModel.swift in Sources */,
 				AA7197A9287A481500623C15 /* PlayInfo.swift in Sources */,
 				83FFD5F430474C76007E2037 /* ArknightsMetalCapture.swift in Sources */,
+				D15AB1E12AB0000000000006 /* UICaptureCompositor.swift in Sources */,
 				AA71986A287A81A000623C15 /* PTFakeMetaTouch.m in Sources */,
 				9562D15E2AB4FCB8002C329D /* TouchscreenControllerEventAdapter.swift in Sources */,
 				954389C62B3896E600B063BB /* ChildButton.swift in Sources */,
