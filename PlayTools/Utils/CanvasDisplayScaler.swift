@@ -79,18 +79,35 @@ enum CanvasDisplayScaler {
         let postTransforms = subviews.map { Double($0.transform.a) }
         window.layer.masksToBounds = false
         logDiagnostics(content: content.size, canvas: canvas, scale: scale,
-                       pre: preTransforms, post: postTransforms)
+                       pre: preTransforms, post: postTransforms,
+                       window: window, rootView: rootView)
     }
 
     private static var lastLogged = ""
 
     /// Temporary diagnostics for the canvas scaling (read /tmp/playscaler.log)
     private static func logDiagnostics(content: CGSize, canvas: CGSize, scale: CGFloat,
-                                       pre: [Double], post: [Double]) {
+                                       pre: [Double], post: [Double],
+                                       window: UIWindow, rootView: UIView) {
         let preText = pre.map { String(format: "%.3f", $0) }.joined(separator: ",")
         let postText = post.map { String(format: "%.3f", $0) }.joined(separator: ",")
-        let line = String(format: "content=%.0fx%.0f scale=%.4f n=%d pre=[%@] post=[%@]\n",
-                          content.width, content.height, scale, pre.count, preText, postText)
+        // Find the game view: the largest CAMetalLayer-backed view in the tree
+        var unitySize = CGSize.zero
+        func findGameView(_ view: UIView) {
+            if view.layer is CAMetalLayer, view.bounds.width > unitySize.width {
+                unitySize = view.bounds.size
+            }
+            for sub in view.subviews { findGameView(sub) }
+        }
+        findGameView(window)
+        let winBounds = window.bounds.size
+        let rootFrame = rootView.frame
+        let line = String(format:
+            "content=%.0fx%.0f scale=%.4f n=%d pre=[%@] post=[%@] win=%.0fx%.0f root=%.0fx%.0f@%.0f,%.0f unity=%.0fx%.0f\n",
+            content.width, content.height, scale, pre.count, preText, postText,
+            winBounds.width, winBounds.height,
+            rootFrame.size.width, rootFrame.size.height, rootFrame.origin.x, rootFrame.origin.y,
+            unitySize.width, unitySize.height)
         guard line != lastLogged else { return }
         lastLogged = line
         let path = "/tmp/playscaler.log"
