@@ -262,8 +262,11 @@ private let MAA_TOOLS_VERSION = 4
     private func toucherDispatch(_ content: Data, on _: NWConnection) {
         let touchPhase = content[4]
 
-        let pointX = content.u16(at: 5).divRound(by: scale)
-        let pointY = content.u16(at: 7).divRound(by: scale)
+        // Capture space is the canvas; injected touches must land at the
+        // visual position, so apply the canvas-to-window display scale
+        let displayScale = Double(CanvasDisplayScaler.currentScale)
+        let pointX = Int((Double(content.u16(at: 5)) / scale * displayScale).rounded())
+        let pointY = Int((Double(content.u16(at: 7)) / scale * displayScale).rounded())
         let contact = content.count >= 10 ? Int(content[9]) : 0
 
         PlayInput.touchQueue.async {

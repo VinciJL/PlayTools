@@ -96,9 +96,34 @@ NSData *PTRenderServerCaptureKeyWindow(NSUInteger width, NSUInteger height) {
     PTSurfaceRef surface = PTSurfaceCreate((__bridge CFDictionaryRef)properties);
     if (surface == NULL) { return nil; }
 
+    // Mode 7: the display scaler puts canvas-to-window transforms on the
+    // window's top-level views. Reset them around the capture (with a
+    // transaction flush so the render server sees the reset state) to grab
+    // the canvas 1:1 instead of the scaled display.
+    NSMutableArray *savedTransforms = [NSMutableArray array];
+    for (UIView *subview in window.subviews) {
+        if (!CGAffineTransformIsIdentity(subview.transform)) {
+            [savedTransforms addObject:@[subview,
+                                         [NSValue valueWithCGAffineTransform:subview.transform]]];
+            subview.transform = CGAffineTransformIdentity;
+        }
+    }
+    if (savedTransforms.count > 0) {
+        [CATransaction flush];
+    }
+
     // The layer argument is the CALayer object pointer (see the note above)
     uint64_t layerPointer = (uint64_t)(uintptr_t)(__bridge void *)layer;
     PTRenderServerRenderLayer(0, contextId, layerPointer, surface, 0, 0);
+
+    for (NSArray *entry in savedTransforms) {
+        UIView *subview = entry[0];
+        NSValue *value = entry[1];
+        subview.transform = value.CGAffineTransformValue;
+    }
+    if (savedTransforms.count > 0) {
+        [CATransaction flush];
+    }
 
     NSData *data = nil;
     if (PTSurfaceLock(surface, 0x1, NULL) == 0) {  // kIOSurfaceLockReadOnly
