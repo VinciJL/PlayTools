@@ -200,24 +200,52 @@ private let MAA_TOOLS_VERSION = 4
         try await connection.send(content: data.count.u32Bytes + data)
     }
 
-    /// Mode 7: grabs the canvas (fixed resolution) through the render server
-    /// as premultiplied BGRA. Caller takes ownership of the buffer.
+    /// Mode 7: grabs the window's real composite (game stretched to the
+    /// window plus UIKit content) through the render server and scales it to
+    /// the fixed canvas resolution. Caller takes ownership of the buffer.
     private func renderServerFrame() async
         -> (buffer: UnsafeMutablePointer<UInt8>, width: Int, height: Int)? {
         guard PlaySettings.shared.resolution == 7,
               PTRenderServerCaptureAvailable() else { return nil }
-        let width = Int(PlaySettings.shared.windowSizeWidth.rounded())
-        let height = Int(PlaySettings.shared.windowSizeHeight.rounded())
-        guard width > 0, height > 0 else { return nil }
-        guard let frame = PTRenderServerCaptureKeyWindow(UInt(width), UInt(height)) else {
+        guard let window = PlayScreen.shared.keyWindow else { return nil }
+        let captureScale = CGFloat(window.layer.contentsScale)
+        let surfaceWidth = Int((window.bounds.width * captureScale).rounded())
+        let surfaceHeight = Int((window.bounds.height * captureScale).rounded())
+        let canvasWidth = Int(PlaySettings.shared.windowSizeWidth.rounded())
+        let canvasHeight = Int(PlaySettings.shared.windowSizeHeight.rounded())
+        guard surfaceWidth > 0, surfaceHeight > 0, canvasWidth > 0, canvasHeight > 0 else {
+            return nil
+        }
+        guard let frame = PTRenderServerCaptureKeyWindow(UInt(surfaceWidth), UInt(surfaceHeight)) else {
             logger.error("Render server capture failed")
             return nil
         }
-        let length = 4 * width * height
-        guard frame.count >= length else { return nil }
-        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: length)
-        frame.copyBytes(to: buffer, count: length)
-        return (buffer, width, height)
+        let captureLength = 4 * surfaceWidth * surfaceHeight
+        guard frame.count >= captureLength else { return nil }
+
+        if surfaceWidth == canvasWidth && surfaceHeight == canvasHeight {
+            let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: captureLength)
+            frame.copyBytes(to: buffer, count: captureLength)
+            return (buffer, canvasWidth, canvasHeight)
+        }
+
+        // Scale the window-sized composite to the fixed canvas resolution
+        let source = UnsafeMutablePointer<UInt8>.allocate(capacity: captureLength)
+        frame.copyBytes(to: source, count: captureLength)
+        defer { source.deallocate() }
+        let destination = UnsafeMutablePointer<UInt8>.allocate(capacity: 4 * canvasWidth * canvasHeight)
+        var src = vImage_Buffer(data: source,
+                                height: UInt(surfaceHeight), width: UInt(surfaceWidth),
+                                rowBytes: 4 * surfaceWidth)
+        var dst = vImage_Buffer(data: destination,
+                                height: UInt(canvasHeight), width: UInt(canvasWidth),
+                                rowBytes: 4 * canvasWidth)
+        let error = vImageScale_ARGB8888(&src, &dst, nil, vImage_Flags(kvImageHighQualityResampling))
+        guard error == kvImageNoError else {
+            destination.deallocate()
+            return nil
+        }
+        return (destination, canvasWidth, canvasHeight)
     }
 
     private func renderServerScreenshot() async -> Data? {
