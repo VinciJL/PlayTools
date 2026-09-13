@@ -200,9 +200,10 @@ private let MAA_TOOLS_VERSION = 4
         try await connection.send(content: data.count.u32Bytes + data)
     }
 
-    /// Mode 7: grabs the canvas (fixed resolution) through the render server,
-    /// converting the BGRA output to the RGBA payload MAA expects.
-    private func renderServerScreenshot() async -> Data? {
+    /// Mode 7: grabs the canvas (fixed resolution) through the render server
+    /// as premultiplied BGRA. Caller takes ownership of the buffer.
+    private func renderServerFrame() async
+        -> (buffer: UnsafeMutablePointer<UInt8>, width: Int, height: Int)? {
         guard PlaySettings.shared.resolution == 7,
               PTRenderServerCaptureAvailable() else { return nil }
         let width = Int(PlaySettings.shared.windowSizeWidth.rounded())
@@ -214,18 +215,22 @@ private let MAA_TOOLS_VERSION = 4
         }
         let length = 4 * width * height
         guard frame.count >= length else { return nil }
-
         let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: length)
         frame.copyBytes(to: buffer, count: length)
+        return (buffer, width, height)
+    }
 
-        var srcBuffer = vImage_Buffer(data: buffer,
-                                      height: UInt(height), width: UInt(width),
-                                      rowBytes: 4 * width)
+    private func renderServerScreenshot() async -> Data? {
+        guard let frame = await renderServerFrame() else { return nil }
+        let length = 4 * frame.width * frame.height
+        var srcBuffer = vImage_Buffer(data: frame.buffer,
+                                      height: UInt(frame.height), width: UInt(frame.width),
+                                      rowBytes: 4 * frame.width)
         var permuteMap: [UInt8] = [2, 1, 0, 3]  // B,G,R,A -> R,G,B,A
         vImagePermuteChannels_ARGB8888(
             &srcBuffer, &srcBuffer, &permuteMap, vImage_Flags(kvImageNoFlags))
 
-        return Data(bytesNoCopy: buffer, count: length,
+        return Data(bytesNoCopy: frame.buffer, count: length,
                     deallocator: .custom { pointer, _ in pointer.deallocate() })
     }
 
@@ -327,6 +332,26 @@ private let MAA_TOOLS_VERSION = 4
     }
 
     private func bgrScreencap(to connection: NWConnection, pool: inout ByteBufferPool) async throws {
+        // Mode 7: same fixed-resolution canvas as SCRN, BGR payload
+        if let frame = await renderServerFrame() {
+            defer { frame.buffer.deallocate() }
+            let length = 3 * frame.height * frame.width
+            let buffer = pool.acquire(capacity: length)
+            var src = vImage_Buffer(data: frame.buffer,
+                                    height: UInt(frame.height), width: UInt(frame.width),
+                                    rowBytes: 4 * frame.width)
+            var dst = vImage_Buffer(data: buffer,
+                                    height: UInt(frame.height), width: UInt(frame.width),
+                                    rowBytes: 3 * frame.width)
+            vImageConvert_RGBA8888toRGB888(&src, &dst, vImage_Flags(kvImageNoFlags))
+
+            let header = frame.width.u32Bytes + frame.height.u32Bytes + length.u32Bytes
+            let data = Data(bytesNoCopy: buffer, count: length, deallocator: .none)
+            try await connection.send(content: header)
+            try await connection.send(content: data)
+            return
+        }
+
         guard var src = await bgrScreenshot() else {
             try await connection.send(content: 0.u32Bytes + 0.u32Bytes + 0.u32Bytes)
             return
