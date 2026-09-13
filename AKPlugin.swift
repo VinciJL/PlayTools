@@ -16,6 +16,8 @@ private struct AKAppSettingsData: Codable {
     var hideTitleBar: Bool?
     var floatingWindow: Bool?
     var resolution: Int?
+    var windowWidth: Int?
+    var windowHeight: Int?
     var resizableAspectRatioWidth: Int?
     var resizableAspectRatioHeight: Int?
 }
@@ -405,15 +407,24 @@ class AKPlugin: NSObject, Plugin {
     private var hideTitleBarSetting: Bool { Self.akAppSettingsData?.hideTitleBar ?? false }
     private var floatingWindowSetting: Bool { Self.akAppSettingsData?.floatingWindow ?? false }
     private var aspectRatioSetting: NSSize? {
-        guard Self.akAppSettingsData?.resolution == 6 else {
-            return nil
+        let resolution = Self.akAppSettingsData?.resolution ?? 0
+        if resolution == 6 {
+            let width = Self.akAppSettingsData?.resizableAspectRatioWidth ?? 0
+            let height = Self.akAppSettingsData?.resizableAspectRatioHeight ?? 0
+            guard width > 0 && height > 0 else {
+                return nil
+            }
+            return NSSize(width: width, height: height)
+        } else if resolution == 7 {
+            // Lock the window to the fixed canvas aspect ratio
+            let width = Self.akAppSettingsData?.windowWidth ?? 0
+            let height = Self.akAppSettingsData?.windowHeight ?? 0
+            guard width > 0 && height > 0 else {
+                return nil
+            }
+            return NSSize(width: width, height: height)
         }
-        let width = Self.akAppSettingsData?.resizableAspectRatioWidth ?? 0
-        let height = Self.akAppSettingsData?.resizableAspectRatioHeight ?? 0
-        guard width > 0 && height > 0 else {
-            return nil
-        }
-        return NSSize(width: width, height: height)
+        return nil
     }
 
     fileprivate static var akAppSettingsData: AKAppSettingsData? = {

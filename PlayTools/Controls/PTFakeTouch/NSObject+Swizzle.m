@@ -153,6 +153,17 @@ __attribute__((visibility("hidden")))
     return [PlayScreen boundsResizable:[self hook_boundsResizable]];
 }
 
+// Mode 7 canvas: the scene believes the device is the configured resolution
+// (points == pixels, scale 1); the display scaler stretches the canvas to
+// the real window and captures grab it 1:1.
+- (CGRect) hook_canvasNativeBounds {
+    return [PlayScreen bounds:[self hook_canvasNativeBounds]];
+}
+
+- (double) hook_canvasScale {
+    return 1.0;
+}
+
 - (BOOL) hook_requiresFullScreen {
     return NO;
 }
@@ -259,9 +270,29 @@ bool menuWasCreated = false;
     if(@available(iOS 16.3, *)) {
         if ([[PlaySettings shared] resizableWindow]) {
             [objc_getClass("_UIApplicationInfoParser") swizzleInstanceMethod:NSSelectorFromString(@"requiresFullScreen") withMethod:@selector(hook_requiresFullScreen)];
-            [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(bounds) withMethod:@selector(hook_boundsResizable)];
-            [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(nativeScale) withMethod:@selector(hook_nativeScale)];
-            [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(scale) withMethod:@selector(hook_scale)];
+            if ([[PlaySettings shared] resolution] == 6) {
+                // Mode 6: game renders at the live window size
+                [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(bounds) withMethod:@selector(hook_boundsResizable)];
+                [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(nativeScale) withMethod:@selector(hook_nativeScale)];
+                [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(scale) withMethod:@selector(hook_scale)];
+            } else {
+                // Mode 7: fixed canvas (the configured resolution) with a freely
+                // resizable window. Scene and screen metrics are pinned to the
+                // canvas; AKInterface's display scaler stretches the canvas to
+                // the real window, while screenshots grab the canvas 1:1 via
+                // CARenderServerRenderLayer (RenderServerCapture).
+                if(@available(iOS 17.1, *))
+                    [objc_getClass("FBSSceneSettingsCore") swizzleExchangeMethod:@selector(frame) withMethod:@selector(hook_frame)];
+                else
+                    [objc_getClass("FBSSceneSettings") swizzleInstanceMethod:@selector(frame) withMethod:@selector(hook_frame)];
+                [objc_getClass("FBSSceneSettings") swizzleInstanceMethod:@selector(bounds) withMethod:@selector(hook_bounds)];
+                [objc_getClass("FBSDisplayMode") swizzleInstanceMethod:@selector(size) withMethod:@selector(hook_size)];
+                [objc_getClass("UIDevice") swizzleInstanceMethod:@selector(orientation) withMethod:@selector(hook_orientation)];
+                [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(bounds) withMethod:@selector(hook_bounds)];
+                [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(nativeBounds) withMethod:@selector(hook_canvasNativeBounds)];
+                [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(nativeScale) withMethod:@selector(hook_canvasScale)];
+                [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(scale) withMethod:@selector(hook_canvasScale)];
+            }
         }
         else if ([[PlaySettings shared] adaptiveDisplay]) {
             // This is an experimental fix

@@ -18,6 +18,8 @@ FOUNDATION_EXPORT const unsigned char PlayToolsVersionString[];
 #import "UIEvent+Private.h"
 #import "UITouch+Private.h"
 #import "MetalCaptureHook.h"
+#import "DrawableSizePin.h"
+#import "RenderServerCapture.h"
 
 // This is the function that CFRunLoop calls to serve main dispatch queue
 // Used by PlayInput to manually drain the queue

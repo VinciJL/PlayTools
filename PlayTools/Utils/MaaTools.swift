@@ -190,8 +190,43 @@ private let MAA_TOOLS_VERSION = 4
     // swiftlint:enable line_length
 
     private func screencap(to connection: NWConnection) async throws {
-        let data = await screenshot() ?? Data()
+        // Prefer the render-server capture: one composited image (game +
+        // UIKit + cross-process content) at the fixed canvas resolution
+        var image = await renderServerScreenshot()
+        if image == nil {
+            image = await screenshot()
+        }
+        let data = image ?? Data()
         try await connection.send(content: data.count.u32Bytes + data)
+    }
+
+    /// Mode 7: grabs the canvas (fixed resolution) through the render server,
+    /// converting the BGRA output to the RGBA payload MAA expects.
+    private func renderServerScreenshot() async -> Data? {
+        guard PlaySettings.shared.resolution == 7,
+              PTRenderServerCaptureAvailable() else { return nil }
+        let width = Int(PlaySettings.shared.windowSizeWidth.rounded())
+        let height = Int(PlaySettings.shared.windowSizeHeight.rounded())
+        guard width > 0, height > 0 else { return nil }
+        guard let frame = PTRenderServerCaptureKeyWindow(UInt(width), UInt(height)) else {
+            logger.error("Render server capture failed")
+            return nil
+        }
+        let length = 4 * width * height
+        guard frame.count >= length else { return nil }
+
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: length)
+        frame.copyBytes(to: buffer, count: length)
+
+        var srcBuffer = vImage_Buffer(data: buffer,
+                                      height: UInt(height), width: UInt(width),
+                                      rowBytes: 4 * width)
+        var permuteMap: [UInt8] = [2, 1, 0, 3]  // B,G,R,A -> R,G,B,A
+        vImagePermuteChannels_ARGB8888(
+            &srcBuffer, &srcBuffer, &permuteMap, vImage_Flags(kvImageNoFlags))
+
+        return Data(bytesNoCopy: buffer, count: length,
+                    deallocator: .custom { pointer, _ in pointer.deallocate() })
     }
 
     private func screenshot() async -> Data? {
