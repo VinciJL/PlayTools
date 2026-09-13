@@ -20,12 +20,13 @@ public class PlayCover: NSObject {
 
         if PlaySettings.shared.resolution == 7 {
             // Fixed render resolution with a freely resizable window: pin the
-            // game's drawable size so window resizing never changes the render
-            // resolution. The compositor stretches the drawable to fill the
-            // window, whose aspect ratio is locked to the configured resolution.
-            let scaler = CGFloat(PlaySettings.shared.customScaler)
-            let pinWidth = PlaySettings.shared.windowSizeWidth * scaler
-            let pinHeight = PlaySettings.shared.windowSizeHeight * scaler
+            // game's drawable size to the configured resolution so window
+            // resizing never changes the render resolution. The view's content
+            // scale is derived dynamically (pinned size / view size) so the
+            // game's screen size stays constant too, and the compositor
+            // stretches the fixed-size drawable to fill the window.
+            let pinWidth = PlaySettings.shared.windowSizeWidth
+            let pinHeight = PlaySettings.shared.windowSizeHeight
             if pinWidth > 0 && pinHeight > 0 {
                 _ = PTSetPinnedDrawableSize(CGSize(width: pinWidth, height: pinHeight))
             }
