@@ -18,6 +18,17 @@ public class PlayCover: NSObject {
         PlayInput.shared.initialize()
         DiscordIPC.shared.initialize()
 
+        if PlaySettings.shared.resolution == 7 {
+            // mode 7 固定游戏 drawable 尺寸，使渲染像素不随窗口变化。
+            let pinWidth = PlaySettings.shared.windowSizeWidth
+            let pinHeight = PlaySettings.shared.windowSizeHeight
+            if pinWidth > 0 && pinHeight > 0 {
+                _ = PTSetPinnedDrawableSize(CGSize(width: pinWidth, height: pinHeight))
+            }
+            // 仅追踪画布与真实窗口的比例，用于触摸坐标映射。
+            CanvasDisplayScaler.start()
+        }
+
         if ArknightsMetalCapture.installation == true {
             print("[PlayTools] Installed Metal capture hooks.")
         }

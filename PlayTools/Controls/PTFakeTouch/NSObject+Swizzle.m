@@ -153,6 +153,11 @@ __attribute__((visibility("hidden")))
     return [PlayScreen boundsResizable:[self hook_boundsResizable]];
 }
 
+// mode 7 让 scene 保持真实窗口尺寸，固定渲染分辨率由 drawable pin 和 contentScaleFactor 保证。
+- (double) hook_canvasScale {
+    return 1.0;
+}
+
 - (BOOL) hook_requiresFullScreen {
     return NO;
 }
@@ -259,9 +264,20 @@ bool menuWasCreated = false;
     if(@available(iOS 16.3, *)) {
         if ([[PlaySettings shared] resizableWindow]) {
             [objc_getClass("_UIApplicationInfoParser") swizzleInstanceMethod:NSSelectorFromString(@"requiresFullScreen") withMethod:@selector(hook_requiresFullScreen)];
-            [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(bounds) withMethod:@selector(hook_boundsResizable)];
-            [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(nativeScale) withMethod:@selector(hook_nativeScale)];
-            [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(scale) withMethod:@selector(hook_scale)];
+            if ([[PlaySettings shared] resolution] == 6) {
+                // Mode 6: game renders at the live window size
+                [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(bounds) withMethod:@selector(hook_boundsResizable)];
+                [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(nativeScale) withMethod:@selector(hook_nativeScale)];
+                [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(scale) withMethod:@selector(hook_scale)];
+            } else {
+                // mode 7 保持 scene 和 window 的真实几何，宿主负责自然铺满窗口。
+                // 固定渲染尺寸由 drawable pin 与动态 contentScaleFactor 保证，
+                // UIKit 内容通过 UIScreen.bounds 跟随实时窗口。
+                [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(bounds) withMethod:@selector(hook_boundsResizable)];
+                [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(nativeBounds) withMethod:@selector(hook_boundsResizable)];
+                [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(nativeScale) withMethod:@selector(hook_canvasScale)];
+                [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(scale) withMethod:@selector(hook_canvasScale)];
+            }
         }
         else if ([[PlaySettings shared] adaptiveDisplay]) {
             // This is an experimental fix
