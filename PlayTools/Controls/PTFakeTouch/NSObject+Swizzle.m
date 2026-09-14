@@ -269,7 +269,8 @@ bool menuWasCreated = false;
                 [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(bounds) withMethod:@selector(hook_boundsResizable)];
                 [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(nativeScale) withMethod:@selector(hook_nativeScale)];
                 [objc_getClass("UIScreen") swizzleInstanceMethod:@selector(scale) withMethod:@selector(hook_scale)];
-            } else {
+            } else if ([[PlaySettings shared] resolution] == 7 &&
+                       [[PlaySettings shared] enableMode7]) {
                 // mode 7 保持 scene 和 window 的真实几何，宿主负责自然铺满窗口。
                 // 固定渲染尺寸由 drawable pin 与动态 contentScaleFactor 保证，
                 // UIKit 内容通过 UIScreen.bounds 跟随实时窗口。

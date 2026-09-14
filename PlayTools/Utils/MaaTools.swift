@@ -208,7 +208,8 @@ private let MAA_TOOLS_VERSION = 4
 
     // mode 7 捕获真实窗口的完整合成图，再缩放回固定画布；返回的 buffer 由调用方释放。
     private func renderServerFrame() async -> RenderServerFrame? {
-        guard PlaySettings.shared.resolution == 7,
+        guard PlaySettings.shared.enableMode7,
+              PlaySettings.shared.resolution == 7,
               PTRenderServerCaptureAvailable() else { return nil }
         guard let window = PlayScreen.shared.keyWindow else { return nil }
         let captureScale = CGFloat(window.layer.contentsScale)
@@ -293,10 +294,17 @@ private let MAA_TOOLS_VERSION = 4
     private func toucherDispatch(_ content: Data, on _: NWConnection) {
         let touchPhase = content[4]
 
-        // MAA 坐标以固定画布为基准，注入前乘以当前画布到窗口的显示比例。
-        let displayScale = Double(CanvasDisplayScaler.currentScale)
-        let pointX = Int((Double(content.u16(at: 5)) / scale * displayScale).rounded())
-        let pointY = Int((Double(content.u16(at: 7)) / scale * displayScale).rounded())
+        let pointX: Int
+        let pointY: Int
+        if PlaySettings.shared.enableMode7 && PlaySettings.shared.resolution == 7 {
+            // mode 7 的 MAA 坐标以固定画布为基准，注入前乘以窗口显示比例。
+            let displayScale = Double(CanvasDisplayScaler.currentScale)
+            pointX = Int((Double(content.u16(at: 5)) / scale * displayScale).rounded())
+            pointY = Int((Double(content.u16(at: 7)) / scale * displayScale).rounded())
+        } else {
+            pointX = content.u16(at: 5).divRound(by: scale)
+            pointY = content.u16(at: 7).divRound(by: scale)
+        }
         let contact = content.count >= 10 ? Int(content[9]) : 0
 
         PlayInput.touchQueue.async {
@@ -473,6 +481,11 @@ private extension Int {
     var u32Bytes: Data {
         let bytes = [UInt8(self >> 24 & 0xff), UInt8(self >> 16 & 0xff), UInt8(self >> 8 & 0xff), UInt8(self & 0xff)]
         return Data(bytes)
+    }
+
+    func divRound(by div: Double) -> Int {
+        let value = Double(self) / div
+        return Int(value.rounded())
     }
 }
 

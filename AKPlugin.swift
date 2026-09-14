@@ -16,6 +16,7 @@ private struct AKAppSettingsData: Codable {
     var hideTitleBar: Bool?
     var floatingWindow: Bool?
     var resolution: Int?
+    var enableMode7: Bool?
     var windowWidth: Int?
     var windowHeight: Int?
     var resizableAspectRatioWidth: Int?
@@ -415,7 +416,7 @@ class AKPlugin: NSObject, Plugin {
                 return nil
             }
             return NSSize(width: width, height: height)
-        } else if resolution == 7 {
+        } else if resolution == 7 && Self.akAppSettingsData?.enableMode7 == true {
             // mode 7 按固定画布宽高锁定宿主窗口比例。
             let width = Self.akAppSettingsData?.windowWidth ?? 0
             let height = Self.akAppSettingsData?.windowHeight ?? 0

@@ -15,7 +15,8 @@ enum CanvasDisplayScaler {
     private(set) static var currentScale: CGFloat = 1
 
     static func start() {
-        guard PlaySettings.shared.resolution == 7 else { return }
+        guard PlaySettings.shared.enableMode7,
+              PlaySettings.shared.resolution == 7 else { return }
         let center = NotificationCenter.default
         for name in [resizeNotification, endResizeNotification,
                      becomeKeyNotification, windowBecomeKeyNotification] {
@@ -37,7 +38,8 @@ enum CanvasDisplayScaler {
     }
 
     static func update() {
-        guard PlaySettings.shared.resolution == 7 else { return }
+        guard PlaySettings.shared.enableMode7,
+              PlaySettings.shared.resolution == 7 else { return }
         let canvasWidth = PlaySettings.shared.windowSizeWidth
         guard canvasWidth > 0 else { return }
         guard let window = PlayScreen.shared.keyWindow,

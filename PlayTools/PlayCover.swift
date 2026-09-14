@@ -18,7 +18,7 @@ public class PlayCover: NSObject {
         PlayInput.shared.initialize()
         DiscordIPC.shared.initialize()
 
-        if PlaySettings.shared.resolution == 7 {
+        if PlaySettings.shared.enableMode7 && PlaySettings.shared.resolution == 7 {
             // mode 7 固定游戏 drawable 尺寸，使渲染像素不随窗口变化。
             let pinWidth = PlaySettings.shared.windowSizeWidth
             let pinHeight = PlaySettings.shared.windowSizeHeight

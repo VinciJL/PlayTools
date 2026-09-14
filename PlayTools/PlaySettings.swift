@@ -39,11 +39,14 @@ let settings = PlaySettings.shared
 
     @objc lazy var inverseScreenValues = settingsData.inverseScreenValues
 
-    @objc lazy var resolution = settingsData.resolution
+    @objc lazy var enableMode7 = settingsData.enableMode7 ?? false
 
-    @objc lazy var adaptiveDisplay = settingsData.resolution == 0 ? false : true
+    @objc lazy var resolution =
+        settingsData.resolution == 7 && !enableMode7 ? 5 : settingsData.resolution
 
-    @objc lazy var resizableWindow = settingsData.resolution == 6 || settingsData.resolution == 7
+    @objc lazy var adaptiveDisplay = resolution == 0 ? false : true
+
+    @objc lazy var resizableWindow = resolution == 6 || resolution == 7
 
     @objc lazy var deviceModel = settingsData.iosDeviceModel as NSString
 
@@ -128,6 +131,7 @@ struct AppSettingsData: Codable {
     var playChain = false
     var playChainDebugging = false
     var inverseScreenValues = false
+    var enableMode7: Bool?
     var windowFixMethod = 0
     var maaTools = false
     var maaToolsPort = 1717
