@@ -9,6 +9,13 @@ import Accelerate
 import Network
 import OSLog
 
+// RenderServer 帧的 buffer 由调用方负责释放，宽高与 buffer 内容始终保持一致。
+private struct RenderServerFrame {
+    let buffer: UnsafeMutablePointer<UInt8>
+    let width: Int
+    let height: Int
+}
+
 private let MAA_TOOLS_VERSION = 4
 
 // swiftlint:disable file_length type_body_length
@@ -190,8 +197,72 @@ private let MAA_TOOLS_VERSION = 4
     // swiftlint:enable line_length
 
     private func screencap(to connection: NWConnection) async throws {
-        let data = await screenshot() ?? Data()
+        // 优先读取 RenderServer 的完整合成结果（游戏、UIKit 和跨进程内容），再缩放到固定画布。
+        var image = await renderServerScreenshot()
+        if image == nil {
+            image = await screenshot()
+        }
+        let data = image ?? Data()
         try await connection.send(content: data.count.u32Bytes + data)
+    }
+
+    // mode 7 捕获真实窗口的完整合成图，再缩放回固定画布；返回的 buffer 由调用方释放。
+    private func renderServerFrame() async -> RenderServerFrame? {
+        guard PlaySettings.shared.resolution == 7,
+              PTRenderServerCaptureAvailable() else { return nil }
+        guard let window = PlayScreen.shared.keyWindow else { return nil }
+        let captureScale = CGFloat(window.layer.contentsScale)
+        let surfaceWidth = Int((window.bounds.width * captureScale).rounded())
+        let surfaceHeight = Int((window.bounds.height * captureScale).rounded())
+        let canvasWidth = Int(PlaySettings.shared.windowSizeWidth.rounded())
+        let canvasHeight = Int(PlaySettings.shared.windowSizeHeight.rounded())
+        guard surfaceWidth > 0, surfaceHeight > 0, canvasWidth > 0, canvasHeight > 0 else {
+            return nil
+        }
+        guard let frame = PTRenderServerCaptureKeyWindow(UInt(surfaceWidth), UInt(surfaceHeight)) else {
+            logger.error("Render server capture failed")
+            return nil
+        }
+        let captureLength = 4 * surfaceWidth * surfaceHeight
+        guard frame.count >= captureLength else { return nil }
+
+        if surfaceWidth == canvasWidth && surfaceHeight == canvasHeight {
+            let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: captureLength)
+            frame.copyBytes(to: buffer, count: captureLength)
+            return RenderServerFrame(buffer: buffer, width: canvasWidth, height: canvasHeight)
+        }
+
+        // 将窗口尺寸的合成图缩放到固定画布尺寸。
+        let source = UnsafeMutablePointer<UInt8>.allocate(capacity: captureLength)
+        frame.copyBytes(to: source, count: captureLength)
+        defer { source.deallocate() }
+        let destination = UnsafeMutablePointer<UInt8>.allocate(capacity: 4 * canvasWidth * canvasHeight)
+        var src = vImage_Buffer(data: source,
+                                height: UInt(surfaceHeight), width: UInt(surfaceWidth),
+                                rowBytes: 4 * surfaceWidth)
+        var dst = vImage_Buffer(data: destination,
+                                height: UInt(canvasHeight), width: UInt(canvasWidth),
+                                rowBytes: 4 * canvasWidth)
+        let error = vImageScale_ARGB8888(&src, &dst, nil, vImage_Flags(kvImageHighQualityResampling))
+        guard error == kvImageNoError else {
+            destination.deallocate()
+            return nil
+        }
+        return RenderServerFrame(buffer: destination, width: canvasWidth, height: canvasHeight)
+    }
+
+    private func renderServerScreenshot() async -> Data? {
+        guard let frame = await renderServerFrame() else { return nil }
+        let length = 4 * frame.width * frame.height
+        var srcBuffer = vImage_Buffer(data: frame.buffer,
+                                      height: UInt(frame.height), width: UInt(frame.width),
+                                      rowBytes: 4 * frame.width)
+        var permuteMap: [UInt8] = [2, 1, 0, 3]  // BGRA → RGBA
+        vImagePermuteChannels_ARGB8888(
+            &srcBuffer, &srcBuffer, &permuteMap, vImage_Flags(kvImageNoFlags))
+
+        return Data(bytesNoCopy: frame.buffer, count: length,
+                    deallocator: .custom { pointer, _ in pointer.deallocate() })
     }
 
     private func screenshot() async -> Data? {
@@ -222,8 +293,10 @@ private let MAA_TOOLS_VERSION = 4
     private func toucherDispatch(_ content: Data, on _: NWConnection) {
         let touchPhase = content[4]
 
-        let pointX = content.u16(at: 5).divRound(by: scale)
-        let pointY = content.u16(at: 7).divRound(by: scale)
+        // MAA 坐标以固定画布为基准，注入前乘以当前画布到窗口的显示比例。
+        let displayScale = Double(CanvasDisplayScaler.currentScale)
+        let pointX = Int((Double(content.u16(at: 5)) / scale * displayScale).rounded())
+        let pointY = Int((Double(content.u16(at: 7)) / scale * displayScale).rounded())
         let contact = content.count >= 10 ? Int(content[9]) : 0
 
         PlayInput.touchQueue.async {
@@ -292,6 +365,26 @@ private let MAA_TOOLS_VERSION = 4
     }
 
     private func bgrScreencap(to connection: NWConnection, pool: inout ByteBufferPool) async throws {
+        // mode 7 的 BGR 输出同样来自固定画布；其他模式保留原来的窗口截图路径。
+        if let frame = await renderServerFrame() {
+            defer { frame.buffer.deallocate() }
+            let length = 3 * frame.height * frame.width
+            let buffer = pool.acquire(capacity: length)
+            var src = vImage_Buffer(data: frame.buffer,
+                                    height: UInt(frame.height), width: UInt(frame.width),
+                                    rowBytes: 4 * frame.width)
+            var dst = vImage_Buffer(data: buffer,
+                                    height: UInt(frame.height), width: UInt(frame.width),
+                                    rowBytes: 3 * frame.width)
+            vImageConvert_RGBA8888toRGB888(&src, &dst, vImage_Flags(kvImageNoFlags))
+
+            let header = frame.width.u32Bytes + frame.height.u32Bytes + length.u32Bytes
+            let data = Data(bytesNoCopy: buffer, count: length, deallocator: .none)
+            try await connection.send(content: header)
+            try await connection.send(content: data)
+            return
+        }
+
         guard var src = await bgrScreenshot() else {
             try await connection.send(content: 0.u32Bytes + 0.u32Bytes + 0.u32Bytes)
             return
@@ -380,11 +473,6 @@ private extension Int {
     var u32Bytes: Data {
         let bytes = [UInt8(self >> 24 & 0xff), UInt8(self >> 16 & 0xff), UInt8(self >> 8 & 0xff), UInt8(self & 0xff)]
         return Data(bytes)
-    }
-
-    func divRound(by div: Double) -> Int {
-        let value = Double(self) / div
-        return Int(value.rounded())
     }
 }
 

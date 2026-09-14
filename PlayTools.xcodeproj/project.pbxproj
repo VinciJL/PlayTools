@@ -18,6 +18,11 @@
 		83FFD5F130474C12007E2037 /* MetalCaptureHook.m in Sources */ = {isa = PBXBuildFile; fileRef = 83FFD5F030474C12007E2037 /* MetalCaptureHook.m */; };
 		83FFD5F230474C12007E2037 /* MetalCaptureHook.h in Headers */ = {isa = PBXBuildFile; fileRef = 83FFD5EF30474C12007E2037 /* MetalCaptureHook.h */; };
 		83FFD5F430474C76007E2037 /* ArknightsMetalCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83FFD5F330474C76007E2037 /* ArknightsMetalCapture.swift */; };
+		D15AB1E12AB0000000000013 /* DrawableSizePin.h in Headers */ = {isa = PBXBuildFile; fileRef = D15AB1E12AB0000000000011 /* DrawableSizePin.h */; };
+		D15AB1E12AB0000000000014 /* DrawableSizePin.m in Sources */ = {isa = PBXBuildFile; fileRef = D15AB1E12AB0000000000012 /* DrawableSizePin.m */; };
+		D15AB1E12AB0000000000017 /* RenderServerCapture.h in Headers */ = {isa = PBXBuildFile; fileRef = D15AB1E12AB0000000000015 /* RenderServerCapture.h */; };
+		D15AB1E12AB0000000000018 /* RenderServerCapture.m in Sources */ = {isa = PBXBuildFile; fileRef = D15AB1E12AB0000000000016 /* RenderServerCapture.m */; };
+		D15AB1E12AB0000000000020 /* CanvasDisplayScaler.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15AB1E12AB0000000000019 /* CanvasDisplayScaler.swift */; };
 		83FFD5F6304751AE007E2037 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 83FFD5F5304751AE007E2037 /* CoreGraphics.framework */; };
 		83FFD5FA304822DB007E2037 /* MetalCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83FFD5F9304822DB007E2037 /* MetalCapture.swift */; };
 		951D8275299D097C00D35B20 /* Playtools.strings in Resources */ = {isa = PBXBuildFile; fileRef = 951D8277299D097C00D35B20 /* Playtools.strings */; };
@@ -121,6 +126,11 @@
 		83FFD5EF30474C12007E2037 /* MetalCaptureHook.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MetalCaptureHook.h; sourceTree = "<group>"; };
 		83FFD5F030474C12007E2037 /* MetalCaptureHook.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MetalCaptureHook.m; sourceTree = "<group>"; };
 		83FFD5F330474C76007E2037 /* ArknightsMetalCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArknightsMetalCapture.swift; sourceTree = "<group>"; };
+		D15AB1E12AB0000000000011 /* DrawableSizePin.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DrawableSizePin.h; sourceTree = "<group>"; };
+		D15AB1E12AB0000000000012 /* DrawableSizePin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = DrawableSizePin.m; sourceTree = "<group>"; };
+		D15AB1E12AB0000000000015 /* RenderServerCapture.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RenderServerCapture.h; sourceTree = "<group>"; };
+		D15AB1E12AB0000000000016 /* RenderServerCapture.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = RenderServerCapture.m; sourceTree = "<group>"; };
+		D15AB1E12AB0000000000019 /* CanvasDisplayScaler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasDisplayScaler.swift; sourceTree = "<group>"; };
 		83FFD5F5304751AE007E2037 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk/System/Library/Frameworks/CoreGraphics.framework; sourceTree = DEVELOPER_DIR; };
 		83FFD5F9304822DB007E2037 /* MetalCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalCapture.swift; sourceTree = "<group>"; };
 		951D8276299D097C00D35B20 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Playtools.strings; sourceTree = "<group>"; };
@@ -245,6 +255,8 @@
 				83FFD5EF30474C12007E2037 /* MetalCaptureHook.h */,
 				83FFD5F030474C12007E2037 /* MetalCaptureHook.m */,
 				83FFD5F330474C76007E2037 /* ArknightsMetalCapture.swift */,
+				D15AB1E12AB0000000000015 /* RenderServerCapture.h */,
+				D15AB1E12AB0000000000016 /* RenderServerCapture.m */,
 				83FFD5F9304822DB007E2037 /* MetalCapture.swift */,
 			);
 			path = Captures;
@@ -479,6 +491,8 @@
 				AA719702287A44D200623C15 /* PlayLoader.m */,
 				AA719708287A44D200623C15 /* PlayTools.h */,
 				2847AE47298EFC0F00B0F983 /* PlayScreen.swift */,
+				D15AB1E12AB0000000000011 /* DrawableSizePin.h */,
+				D15AB1E12AB0000000000012 /* DrawableSizePin.m */,
 			);
 			path = PlayTools;
 			sourceTree = "<group>";
@@ -518,6 +532,7 @@
 				D04B12C92EF6F3DD008FEC14 /* MediaVolume.m */,
 				D04B12CC2EF6F3F9008FEC14 /* MediaVolume.h */,
 				83B1FB7029C9AB94003BBBD4 /* MaaTools.swift */,
+				D15AB1E12AB0000000000019 /* CanvasDisplayScaler.swift */,
 			);
 			path = Utils;
 			sourceTree = "<group>";
@@ -605,6 +620,8 @@
 				AA71986B287A81A000623C15 /* UIApplication+Private.h in Headers */,
 				AA71986D287A81A000623C15 /* PTFakeMetaTouch.h in Headers */,
 				83FFD5F230474C12007E2037 /* MetalCaptureHook.h in Headers */,
+				D15AB1E12AB0000000000013 /* DrawableSizePin.h in Headers */,
+				D15AB1E12AB0000000000017 /* RenderServerCapture.h in Headers */,
 				AA719870287A81A000623C15 /* UIEvent+Private.h in Headers */,
 				AA71970E287A44D200623C15 /* PlayLoader.h in Headers */,
 				AA719872287A81A000623C15 /* UITouch+Private.h in Headers */,
@@ -788,6 +805,7 @@
 				9562D1752AB52479002C329D /* EditorMouseEventAdapter.swift in Sources */,
 				AA7197AA287A481500623C15 /* Toast.swift in Sources */,
 				83B1FB7129C9AB94003BBBD4 /* MaaTools.swift in Sources */,
+				D15AB1E12AB0000000000020 /* CanvasDisplayScaler.swift in Sources */,
 				AA719789287A480D00623C15 /* PlayInput.swift in Sources */,
 				AA71970B287A44D200623C15 /* PlayLoader.m in Sources */,
 				9555ED332C058E36006E469C /* DebugController.swift in Sources */,
@@ -798,6 +816,8 @@
 				AA7197AD287A481500623C15 /* EditorController.swift in Sources */,
 				9562D16B2AB505AD002C329D /* MouseEventAdapter.swift in Sources */,
 				83FFD5F130474C12007E2037 /* MetalCaptureHook.m in Sources */,
+				D15AB1E12AB0000000000014 /* DrawableSizePin.m in Sources */,
+				D15AB1E12AB0000000000018 /* RenderServerCapture.m in Sources */,
 				9562D15C2AB4FC79002C329D /* TransparentMouseEventAdapter.swift in Sources */,
 				9562D1772AB52550002C329D /* EditorControllerEventAdapter.swift in Sources */,
 				AA7197A3287A481500623C15 /* CircleMenuButton.swift in Sources */,
