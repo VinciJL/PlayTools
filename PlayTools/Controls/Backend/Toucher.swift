@@ -21,13 +21,14 @@ class Toucher {
      */
     static func touchcam(point: CGPoint, phase: UITouch.Phase, tid: inout Int?,
                          // Name info for debug use
-                         actionName: String, keyName: String) {
+                         actionName: String, keyName: String,
+                         window: UIWindow? = nil) {
         if phase == UITouch.Phase.began {
             if tid != nil {
                 return
             }
             tid = -1
-            keyWindow = screen.keyWindow
+            keyWindow = window ?? screen.keyWindow
             keyView = keyWindow!.hitTest(point, with: nil)
         } else if tid == nil {
             return

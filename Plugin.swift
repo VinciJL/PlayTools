@@ -34,6 +34,8 @@ public protocol Plugin: NSObjectProtocol {
     func setMenuBarVisible(_ value: Bool)
 
     var sckAvailable: Bool { get }
+    /// 返回与当前 UIKit 窗口对应的宿主窗口 opaque 对象，避免 PlayTools 直接依赖 AppKit 类型。
+    var hostWindowObject: NSObject? { get }
     var windowTitle: String? { get set }
     @MainActor func windowImage() async -> CGImage?
     @MainActor var windowContentRect: CGRect { get }

@@ -1,18 +1,48 @@
 import Foundation
-import ObjectiveC.runtime
 import UIKit
 
-/// mode 7 只追踪固定画布与实时窗口的比例，不修改任何视图变换。
-/// 该比例用于把 MAA 画布坐标映射到窗口中的视觉坐标；截图则先捕获窗口合成图，再缩回固定画布。
-/// 通过 KVC 和运行时调用读取 AppKit 的 NSWindow，避免游戏侧直接链接 AppKit。
+/// 固定画布与实时 UIWindow 之间的几何快照，截图和触控必须使用同一份数据。
+struct CanvasDisplayGeometry {
+    let canvasSize: CGSize
+    let windowBounds: CGRect
+    let displayRect: CGRect
+
+    var scaleX: CGFloat {
+        displayRect.width / canvasSize.width
+    }
+
+    var scaleY: CGFloat {
+        displayRect.height / canvasSize.height
+    }
+}
+
+/// mode 7 只改变最终显示层的缩放，不修改 UIKit 视图树或窗口布局。
 enum CanvasDisplayScaler {
     private static let resizeNotification = Notification.Name("NSWindowDidResizeNotification")
     private static let endResizeNotification = Notification.Name("NSWindowDidEndLiveResizeNotification")
     private static let becomeKeyNotification = Notification.Name("NSWindowDidBecomeKeyNotification")
     private static let windowBecomeKeyNotification = Notification.Name("UIWindowDidBecomeKeyNotification")
 
-    /// 当前窗口宽度 / 固定画布宽度；未启用时为 1。
-    private(set) static var currentScale: CGFloat = 1
+    private(set) static var geometry: CanvasDisplayGeometry?
+    private static let geometryLock = NSLock()
+
+    private static func setGeometry(_ newGeometry: CanvasDisplayGeometry?) {
+        geometryLock.lock()
+        geometry = newGeometry
+        geometryLock.unlock()
+    }
+
+    private static func cachedGeometrySnapshot() -> CanvasDisplayGeometry? {
+        geometryLock.lock()
+        let currentGeometry = geometry
+        geometryLock.unlock()
+        return currentGeometry
+    }
+
+    /// 保留旧调用方需要的横向缩放值；新的触控路径使用 geometry 的正向变换。
+    static var currentScale: CGFloat {
+        cachedGeometrySnapshot()?.scaleX ?? 1
+    }
 
     static func start() {
         guard PlaySettings.shared.enableMode7,
@@ -24,7 +54,7 @@ enum CanvasDisplayScaler {
                 update()
             }
         }
-        // 使用 common mode，拖动窗口进入 tracking mode 时仍然能刷新比例。
+        // 窗口拖动时进入 tracking mode，common mode 可以继续更新显示矩形。
         let timer = Timer(timeInterval: 0.25, repeats: true) { _ in
             update()
         }
@@ -39,27 +69,99 @@ enum CanvasDisplayScaler {
 
     static func update() {
         guard PlaySettings.shared.enableMode7,
-              PlaySettings.shared.resolution == 7 else { return }
-        let canvasWidth = PlaySettings.shared.windowSizeWidth
-        guard canvasWidth > 0 else { return }
-        guard let window = PlayScreen.shared.keyWindow,
-              let nsWindow = window.nsWindow,
-              let frameValue = nsWindow.value(forKey: "frame") as? NSValue else { return }
-        let frame = frameValue.cgRectValue
-        guard let content = contentRect(of: nsWindow, frame: frame) else { return }
-        guard content.size.width > 0 else { return }
-        currentScale = content.size.width / canvasWidth
+              PlaySettings.shared.resolution == 7 else {
+            PTCanvasDisplayStop()
+            setGeometry(nil)
+            return
+        }
+        let canvasSize = CGSize(width: PlaySettings.shared.windowSizeWidth.rounded(),
+                                height: PlaySettings.shared.windowSizeHeight.rounded())
+        guard canvasSize.width > 0, canvasSize.height > 0,
+              let window = PlayScreen.shared.keyWindow else {
+            // 暂时拿不到 source window 时只暂停显示，保留 drawable pin。
+            PTCanvasDisplaySuspend()
+            setGeometry(nil)
+            return
+        }
+
+        let bounds = window.bounds
+        guard bounds.width > 0, bounds.height > 0 else {
+            PTCanvasDisplaySuspend()
+            setGeometry(nil)
+            return
+        }
+
+        guard let hostWindow = window.nsWindow else {
+            // 没有宿主窗口时保留 source UIWindow 的实时坐标，供普通截图/触控 fallback 使用。
+            setGeometry(CanvasDisplayGeometry(canvasSize: canvasSize,
+                                               windowBounds: bounds,
+                                               displayRect: bounds))
+            return
+        }
+
+        // presenter 与触控必须读取同一个 layer 几何快照，不能再次独立计算 aspect-fit。
+        guard PTCanvasDisplayUpdateBinding(window, hostWindow) else {
+            // RenderServer 暂不可用时，drawable pin 仍让 Unity 保持固定尺寸；显示回退到实时窗口。
+            setGeometry(CanvasDisplayGeometry(canvasSize: canvasSize,
+                                               windowBounds: bounds,
+                                               displayRect: bounds))
+            return
+        }
+        var snapshot = PTCanvasDisplayGeometry()
+        guard PTCanvasDisplayCopyGeometry(&snapshot),
+              snapshot.valid,
+              snapshot.canvasSize.width == canvasSize.width,
+              snapshot.canvasSize.height == canvasSize.height,
+              snapshot.canvasSize.width > 0,
+              snapshot.canvasSize.height > 0,
+              snapshot.sourceWindowRect.width > 0,
+              snapshot.sourceWindowRect.height > 0 else {
+            PTCanvasDisplaySuspend()
+            setGeometry(nil)
+            return
+        }
+
+        setGeometry(CanvasDisplayGeometry(canvasSize: snapshot.canvasSize,
+                                           windowBounds: bounds,
+                                           displayRect: snapshot.sourceWindowRect))
     }
 
-    /// 通过运行时调用 `-[NSWindow contentRectForFrameRect:]`，避免引入 AppKit 链接。
-    private static func contentRect(of nsWindow: NSObject, frame: CGRect) -> CGRect? {
-        guard let windowClass = NSClassFromString("NSWindow") else { return nil }
-        let selector = NSSelectorFromString("contentRectForFrameRect:")
-        guard let implementation = class_getMethodImplementation(windowClass, selector) else {
+    private static func canonicalGeometry() -> CanvasDisplayGeometry? {
+        guard let cachedGeometry = cachedGeometrySnapshot() else {
             return nil
         }
-        typealias ContentRectFn = @convention(c) (AnyObject, Selector, CGRect) -> CGRect
-        let function = unsafeBitCast(implementation, to: ContentRectFn.self)
-        return function(nsWindow, selector, frame)
+        var snapshot = PTCanvasDisplayGeometry()
+        guard PTCanvasDisplayIsActive(),
+              PTCanvasDisplayCopyGeometry(&snapshot),
+              snapshot.valid,
+              snapshot.canvasSize.width > 0,
+              snapshot.canvasSize.height > 0,
+              snapshot.sourceWindowRect.width > 0,
+              snapshot.sourceWindowRect.height > 0 else {
+            return cachedGeometry
+        }
+
+        return CanvasDisplayGeometry(
+            canvasSize: snapshot.canvasSize,
+            windowBounds: cachedGeometry.windowBounds,
+            displayRect: snapshot.sourceWindowRect
+        )
+    }
+
+    /// 将 MAA 固定画布像素映射到游戏 UIWindow 的 points 坐标。
+    static func windowPoint(forCanvasPoint point: CGPoint) -> CGPoint? {
+        // 触控实时读取 pipeline 快照，避免窗口拖动期间使用过期的缩放矩形。
+        guard let geometry = canonicalGeometry(),
+              geometry.canvasSize.width > 0,
+              geometry.canvasSize.height > 0,
+              geometry.displayRect.width > 0,
+              geometry.displayRect.height > 0 else { return nil }
+
+        return CGPoint(
+            x: geometry.displayRect.minX +
+                point.x / geometry.canvasSize.width * geometry.displayRect.width,
+            y: geometry.displayRect.minY +
+                point.y / geometry.canvasSize.height * geometry.displayRect.height
+        )
     }
 }

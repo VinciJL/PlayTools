@@ -20,6 +20,7 @@ FOUNDATION_EXPORT const unsigned char PlayToolsVersionString[];
 #import "MetalCaptureHook.h"
 #import "DrawableSizePin.h"
 #import "RenderServerCapture.h"
+#import "CanvasDisplayPipeline.h"
 
 // This is the function that CFRunLoop calls to serve main dispatch queue
 // Used by PlayInput to manually drain the queue

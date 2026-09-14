@@ -151,12 +151,23 @@ public class PlayScreen: NSObject {
         max / 100.0
     }
 
+    private static weak var cachedWindow: UIWindow?
+
     var keyWindow: UIWindow? {
-        return UIApplication
-            .shared
-            .connectedScenes
-            .flatMap { ($0 as? UIWindowScene)?.windows ?? [] }
-            .first { $0.isKeyWindow }
+        let windows = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .filter { $0.activationState == .foregroundActive }
+            .flatMap(\.windows)
+        if let cached = Self.cachedWindow,
+           cached.isKeyWindow,
+           windows.contains(where: { $0 === cached }) {
+            return cached
+        }
+        let selected = windows.first { $0.isKeyWindow }
+        if let selected {
+            Self.cachedWindow = selected
+        }
+        return selected
     }
 
     var windowScene: UIWindowScene? {
@@ -164,15 +175,17 @@ public class PlayScreen: NSObject {
     }
 
     var window: UIWindow? {
-        return UIApplication.shared.connectedScenes
-            .filter({$0.activationState == .foregroundActive})
-            .compactMap({$0 as? UIWindowScene})
-            .first?.windows
-            .filter({$0.isKeyWindow}).first
+        keyWindow
     }
 
     var nsWindow: NSObject? {
-        window?.nsWindow
+        guard let sourceWindow = window else { return nil }
+        if let hostWindow = AKInterface.shared?.hostWindowObject,
+           let uiWindows = hostWindow.value(forKey: "uiWindows") as? [UIWindow],
+           uiWindows.contains(where: { $0 === sourceWindow }) {
+            return hostWindow
+        }
+        return sourceWindow.nsWindowByScanningHostWindows()
     }
 
     func switchDock(_ visible: Bool) {
@@ -201,11 +214,8 @@ public class PlayScreen: NSObject {
             return rect.toAspectRatioDefault()
     }
 
-    private static weak var cachedWindow: UIWindow?
     @objc public static func boundsResizable(_ rect: CGRect) -> CGRect {
-        if cachedWindow == nil {
-            cachedWindow = PlayScreen.shared.keyWindow
-        }
+        cachedWindow = PlayScreen.shared.keyWindow
         return cachedWindow?.bounds ?? rect
     }
 }
@@ -238,11 +248,15 @@ extension CGFloat {
 
 extension UIWindow {
     var nsWindow: NSObject? {
+        nsWindowByScanningHostWindows()
+    }
+
+    func nsWindowByScanningHostWindows() -> NSObject? {
         guard let nsWindows = NSClassFromString("NSApplication")?
             .value(forKeyPath: "sharedApplication.windows") as? [AnyObject] else { return nil }
         for nsWindow in nsWindows {
             let uiWindows = nsWindow.value(forKeyPath: "uiWindows") as? [UIWindow] ?? []
-            if uiWindows.contains(self) {
+            if uiWindows.contains(where: { $0 === self }) {
                 return nsWindow as? NSObject
             }
         }

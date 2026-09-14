@@ -4,12 +4,15 @@
 //
 
 import Foundation
+import OSLog
 import UIKit
 
 public class PlayCover: NSObject {
 
     static let shared = PlayCover()
     var menuController: MenuController?
+    // mode 7 启动/重试失败原因写入统一日志，便于用 log show 定位。
+    private static let mode7Logger = Logger(subsystem: "PlayTools", category: "Mode7")
 
     @objc static public func launch() {
         quitWhenClose()
@@ -20,13 +23,14 @@ public class PlayCover: NSObject {
 
         if PlaySettings.shared.enableMode7 && PlaySettings.shared.resolution == 7 {
             // mode 7 固定游戏 drawable 尺寸，使渲染像素不随窗口变化。
-            let pinWidth = PlaySettings.shared.windowSizeWidth
-            let pinHeight = PlaySettings.shared.windowSizeHeight
+            let pinWidth = PlaySettings.shared.windowSizeWidth.rounded()
+            let pinHeight = PlaySettings.shared.windowSizeHeight.rounded()
             if pinWidth > 0 && pinHeight > 0 {
                 _ = PTSetPinnedDrawableSize(CGSize(width: pinWidth, height: pinHeight))
             }
-            // 仅追踪画布与真实窗口的比例，用于触摸坐标映射。
+            // 仅追踪画布与真实窗口的比例，用于触摸坐标映射和 presenter 尺寸更新。
             CanvasDisplayScaler.start()
+            startMode7Pipeline()
         }
 
         if ArknightsMetalCapture.installation == true {
@@ -61,6 +65,50 @@ public class PlayCover: NSObject {
         }
     }
 
+    private static func startMode7Pipeline(attempt: Int = 0) {
+        guard PlaySettings.shared.enableMode7,
+              PlaySettings.shared.resolution == 7 else { return }
+        guard !PTCanvasDisplayIsActive() else { return }
+
+        let width = Int(PlaySettings.shared.windowSizeWidth.rounded())
+        let height = Int(PlaySettings.shared.windowSizeHeight.rounded())
+        guard width > 0, height > 0 else { return }
+        guard let sourceWindow = PlayScreen.shared.keyWindow else {
+            mode7Logger.error("mode7 attempt \(attempt) aborted: key window missing")
+            scheduleMode7PipelineRetry(afterAttempt: attempt)
+            return
+        }
+        guard let hostWindow = sourceWindow.nsWindow else {
+            mode7Logger.error("mode7 attempt \(attempt) aborted: host window missing for source")
+            scheduleMode7PipelineRetry(afterAttempt: attempt)
+            return
+        }
+
+        // 窗口绑定完成后再次固定 drawable，避免首次启动时窗口尚未出现导致 pin 丢失。
+        _ = PTSetPinnedDrawableSize(CGSize(width: CGFloat(width), height: CGFloat(height)))
+        if PTCanvasDisplayStart(sourceWindow, hostWindow, UInt(width), UInt(height)) {
+            // presenter 建立后立即发布同一份几何快照，避免首次触控读取旧坐标。
+            CanvasDisplayScaler.update()
+        } else {
+            mode7Logger.error("mode7 attempt \(attempt) aborted: PTCanvasDisplayStart returned false")
+            scheduleMode7PipelineRetry(afterAttempt: attempt)
+        }
+    }
+
+    private static func scheduleMode7PipelineRetry(afterAttempt attempt: Int) {
+        let delays = [0.5, 1.5, 3.0, 5.0]
+        guard attempt < delays.count else {
+            // RenderServer 不可用时保留 drawable pin，让 MAA 仍能走固定尺寸 fallback。
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+                startMode7Pipeline()
+            }
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delays[attempt]) {
+            startMode7Pipeline(attempt: attempt + 1)
+        }
+    }
+
     @objc static public func initMenu(menu: NSObject) {
         guard let menuBuilder = menu as? UIMenuBuilder else { return }
         shared.menuController = MenuController(with: menuBuilder)
@@ -73,6 +121,9 @@ public class PlayCover: NSObject {
             queue: OperationQueue.main
         ) { notif in
             if PlayScreen.shared.nsWindow?.isEqual(notif.object) ?? false {
+                if PlaySettings.shared.enableMode7 && PlaySettings.shared.resolution == 7 {
+                    PTCanvasDisplayStop()
+                }
                 // Step 1: Resign active
                 for scene in UIApplication.shared.connectedScenes {
                     scene.delegate?.sceneWillResignActive?(scene)

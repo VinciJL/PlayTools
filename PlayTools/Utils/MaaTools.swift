@@ -8,6 +8,7 @@
 import Accelerate
 import Network
 import OSLog
+import UIKit
 
 // RenderServer 帧的 buffer 由调用方负责释放，宽高与 buffer 内容始终保持一致。
 private struct RenderServerFrame {
@@ -30,6 +31,7 @@ private let MAA_TOOLS_VERSION = 4
     private var windowTitle: String?
     /// All reads and writes must occur on ``PlayInput.touchQueue``.
     private nonisolated(unsafe) var touchContexts = [Int: Int]()
+    private nonisolated(unsafe) var touchPoints = [Int: CGPoint]()
 
     private var scale = 1.0
     private var width = 0
@@ -71,14 +73,21 @@ private let MAA_TOOLS_VERSION = 4
     }
 
     private func setupWindow() {
-        let window = UIApplication.shared.connectedScenes
-            .flatMap { ($0 as? UIWindowScene)?.windows ?? [] }
-            .first { $0.isKeyWindow }
+        if PlaySettings.shared.enableMode7 && PlaySettings.shared.resolution == 7 {
+            // mode 7 的协议尺寸就是固定 IOSurface 尺寸，不再读取实时屏幕像素。
+            scale = 1.0
+            width = Int(PlaySettings.shared.windowSizeWidth.rounded())
+            height = Int(PlaySettings.shared.windowSizeHeight.rounded())
+        } else {
+            let window = UIApplication.shared.connectedScenes
+                .flatMap { ($0 as? UIWindowScene)?.windows ?? [] }
+                .first { $0.isKeyWindow }
 
-        if let screen = window?.windowScene?.screen {
-            scale = screen.nativeScale
-            width = Int(screen.nativeBounds.width.rounded())
-            height = Int(screen.nativeBounds.height.rounded())
+            if let screen = window?.windowScene?.screen {
+                scale = screen.nativeScale
+                width = Int(screen.nativeBounds.width.rounded())
+                height = Int(screen.nativeBounds.height.rounded())
+            }
         }
 
         windowTitle = AKInterface.shared?.windowTitle
@@ -197,7 +206,7 @@ private let MAA_TOOLS_VERSION = 4
     // swiftlint:enable line_length
 
     private func screencap(to connection: NWConnection) async throws {
-        // 优先读取 RenderServer 的完整合成结果（游戏、UIKit 和跨进程内容），再缩放到固定画布。
+        // mode 7 读取固定 surface；其他模式继续优先使用原有完整窗口截图。
         var image = await renderServerScreenshot()
         if image == nil {
             image = await screenshot()
@@ -206,50 +215,30 @@ private let MAA_TOOLS_VERSION = 4
         try await connection.send(content: data.count.u32Bytes + data)
     }
 
-    // mode 7 捕获真实窗口的完整合成图，再缩放回固定画布；返回的 buffer 由调用方释放。
+    // mode 7 只复制显示管线发布的固定 IOSurface，禁止再次按窗口尺寸捕获或缩放。
     private func renderServerFrame() async -> RenderServerFrame? {
         guard PlaySettings.shared.enableMode7,
               PlaySettings.shared.resolution == 7,
-              PTRenderServerCaptureAvailable() else { return nil }
-        guard let window = PlayScreen.shared.keyWindow else { return nil }
-        let captureScale = CGFloat(window.layer.contentsScale)
-        let surfaceWidth = Int((window.bounds.width * captureScale).rounded())
-        let surfaceHeight = Int((window.bounds.height * captureScale).rounded())
+              PTCanvasDisplayIsActive() else { return nil }
+
         let canvasWidth = Int(PlaySettings.shared.windowSizeWidth.rounded())
         let canvasHeight = Int(PlaySettings.shared.windowSizeHeight.rounded())
-        guard surfaceWidth > 0, surfaceHeight > 0, canvasWidth > 0, canvasHeight > 0 else {
-            return nil
-        }
-        guard let frame = PTRenderServerCaptureKeyWindow(UInt(surfaceWidth), UInt(surfaceHeight)) else {
-            logger.error("Render server capture failed")
-            return nil
-        }
-        let captureLength = 4 * surfaceWidth * surfaceHeight
-        guard frame.count >= captureLength else { return nil }
+        guard canvasWidth > 0, canvasHeight > 0 else { return nil }
 
-        if surfaceWidth == canvasWidth && surfaceHeight == canvasHeight {
-            let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: captureLength)
-            frame.copyBytes(to: buffer, count: captureLength)
-            return RenderServerFrame(buffer: buffer, width: canvasWidth, height: canvasHeight)
+        var surfaceWidth = 0
+        var surfaceHeight = 0
+        guard let frame = PTCanvasDisplayCopyCurrentFrame(&surfaceWidth, &surfaceHeight),
+              surfaceWidth == canvasWidth,
+              surfaceHeight == canvasHeight else {
+            logger.error("Fixed canvas surface is unavailable")
+            return nil
         }
 
-        // 将窗口尺寸的合成图缩放到固定画布尺寸。
-        let source = UnsafeMutablePointer<UInt8>.allocate(capacity: captureLength)
-        frame.copyBytes(to: source, count: captureLength)
-        defer { source.deallocate() }
-        let destination = UnsafeMutablePointer<UInt8>.allocate(capacity: 4 * canvasWidth * canvasHeight)
-        var src = vImage_Buffer(data: source,
-                                height: UInt(surfaceHeight), width: UInt(surfaceWidth),
-                                rowBytes: 4 * surfaceWidth)
-        var dst = vImage_Buffer(data: destination,
-                                height: UInt(canvasHeight), width: UInt(canvasWidth),
-                                rowBytes: 4 * canvasWidth)
-        let error = vImageScale_ARGB8888(&src, &dst, nil, vImage_Flags(kvImageHighQualityResampling))
-        guard error == kvImageNoError else {
-            destination.deallocate()
-            return nil
-        }
-        return RenderServerFrame(buffer: destination, width: canvasWidth, height: canvasHeight)
+        let length = 4 * canvasWidth * canvasHeight
+        guard frame.count >= length else { return nil }
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: length)
+        frame.copyBytes(to: buffer, count: length)
+        return RenderServerFrame(buffer: buffer, width: canvasWidth, height: canvasHeight)
     }
 
     private func renderServerScreenshot() async -> Data? {
@@ -291,21 +280,54 @@ private let MAA_TOOLS_VERSION = 4
         try await connection.send(content: width.u16Bytes + height.u16Bytes)
     }
 
+    private func finishDroppedTouch(contact: Int) {
+        PlayInput.touchQueue.async {
+            var tid = self.touchContexts[contact]
+            guard tid != nil else {
+                self.touchPoints.removeValue(forKey: contact)
+                return
+            }
+            let lastPoint = self.touchPoints[contact] ?? .zero
+            Toucher.touchcam(point: lastPoint,
+                             phase: .ended,
+                             tid: &tid,
+                             actionName: "up",
+                             keyName: "touch")
+            self.touchContexts.removeValue(forKey: contact)
+            self.touchPoints.removeValue(forKey: contact)
+        }
+    }
+
     private func toucherDispatch(_ content: Data, on _: NWConnection) {
         let touchPhase = content[4]
-
-        let pointX: Int
-        let pointY: Int
-        if PlaySettings.shared.enableMode7 && PlaySettings.shared.resolution == 7 {
-            // mode 7 的 MAA 坐标以固定画布为基准，注入前乘以窗口显示比例。
-            let displayScale = Double(CanvasDisplayScaler.currentScale)
-            pointX = Int((Double(content.u16(at: 5)) / scale * displayScale).rounded())
-            pointY = Int((Double(content.u16(at: 7)) / scale * displayScale).rounded())
-        } else {
-            pointX = content.u16(at: 5).divRound(by: scale)
-            pointY = content.u16(at: 7).divRound(by: scale)
-        }
         let contact = content.count >= 10 ? Int(content[9]) : 0
+
+        let point: CGPoint
+        let touchWindow: UIWindow?
+        if PlaySettings.shared.enableMode7 && PlaySettings.shared.resolution == 7 {
+            // 坐标与目标 UIWindow 必须在同一时刻获取，避免窗口切换后送入另一棵视图树。
+            guard let sourceWindow = PlayScreen.shared.keyWindow else {
+                if touchPhase == 3 {
+                    finishDroppedTouch(contact: contact)
+                }
+                return
+            }
+            let canvasPoint = CGPoint(x: content.u16(at: 5), y: content.u16(at: 7))
+            guard let windowPoint = CanvasDisplayScaler.windowPoint(forCanvasPoint: canvasPoint) else {
+                if touchPhase == 3 {
+                    finishDroppedTouch(contact: contact)
+                }
+                return
+            }
+            point = windowPoint
+            touchWindow = sourceWindow
+        } else {
+            touchWindow = nil
+            point = CGPoint(x: content.u16(at: 5).divRound(by: scale),
+                            y: content.u16(at: 7).divRound(by: scale))
+        }
+        let pointX = Int(point.x.rounded())
+        let pointY = Int(point.y.rounded())
 
         PlayInput.touchQueue.async {
             var tid = self.touchContexts[contact]
@@ -313,19 +335,24 @@ private let MAA_TOOLS_VERSION = 4
             case 0:
                 Toucher.touchcam(point: .init(x: pointX, y: pointY),
                                  phase: .began, tid: &tid,
-                                 actionName: "down", keyName: "touch")
+                                 actionName: "down", keyName: "touch", window: touchWindow)
             case 1:
                 Toucher.touchcam(point: .init(x: pointX, y: pointY),
                                  phase: .moved, tid: &tid,
-                                 actionName: "move", keyName: "touch")
+                                 actionName: "move", keyName: "touch", window: touchWindow)
             case 3:
                 Toucher.touchcam(point: .init(x: pointX, y: pointY),
                                  phase: .ended, tid: &tid,
-                                 actionName: "up", keyName: "touch")
+                                 actionName: "up", keyName: "touch", window: touchWindow)
             default:
                 break
             }
             self.touchContexts[contact] = tid
+            if touchPhase == 3 {
+                self.touchPoints.removeValue(forKey: contact)
+            } else {
+                self.touchPoints[contact] = point
+            }
         }
     }
 

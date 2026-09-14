@@ -26,10 +26,21 @@ private struct AKAppSettingsData: Codable {
 // swiftlint:disable file_length type_body_length
 
 class AKPlugin: NSObject, Plugin {
+    private weak var activeWindow: NSWindow?
+
+    private var currentWindow: NSWindow? {
+        activeWindow ?? NSApplication.shared.windows.first
+    }
+
+    var hostWindowObject: NSObject? {
+        currentWindow
+    }
+
     required init(sckAvailable: Bool) {
         self.sckAvailable = sckAvailable
         super.init()
-        if let window = NSApplication.shared.windows.first {
+        activeWindow = NSApplication.shared.windows.first
+        if let window = currentWindow {
             window.styleMask.insert([.resizable])
             window.collectionBehavior = [.fullScreenPrimary, .managed, .participatesInCycle]
             window.isMovable = true
@@ -58,8 +69,10 @@ class AKPlugin: NSObject, Plugin {
         NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: nil,
-            queue: .main) { notif in
-                guard let win = notif.object as? NSWindow else { return }
+            queue: .main) { [weak self] notif in
+                guard let self,
+                      let win = notif.object as? NSWindow else { return }
+                self.activeWindow = win
                 win.styleMask.insert([.resizable])
 
                 if self.hideTitleBarSetting == true {
@@ -77,7 +90,18 @@ class AKPlugin: NSObject, Plugin {
                 if let aspectRatio = self.aspectRatioSetting {
                     win.contentAspectRatio = aspectRatio
                 }
-        }
+            }
+
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: nil,
+            queue: .main) { [weak self] notif in
+                guard let self,
+                      let win = notif.object as? NSWindow else { return }
+                if self.activeWindow === win {
+                    self.activeWindow = nil
+                }
+            }
     }
 
     var screenCount: Int {
@@ -85,11 +109,11 @@ class AKPlugin: NSObject, Plugin {
     }
 
     var mousePoint: CGPoint {
-        NSApplication.shared.windows.first?.mouseLocationOutsideOfEventStream ?? CGPoint()
+        currentWindow?.mouseLocationOutsideOfEventStream ?? CGPoint()
     }
 
     var windowFrame: CGRect {
-        NSApplication.shared.windows.first?.frame ?? CGRect()
+        currentWindow?.frame ?? CGRect()
     }
 
     var isMainScreenEqualToFirst: Bool {
@@ -101,19 +125,19 @@ class AKPlugin: NSObject, Plugin {
     }
 
     var isFullscreen: Bool {
-        NSApplication.shared.windows.first!.styleMask.contains(.fullScreen)
+        currentWindow!.styleMask.contains(.fullScreen)
     }
 
     let sckAvailable: Bool
 
     var windowTitle: String? {
         get {
-            NSApplication.shared.windows.first?.title
+            currentWindow?.title
         }
         set {
             if let newValue {
                 DispatchQueue.main.async {
-                    NSApplication.shared.windows.first?.title = newValue
+                    self.currentWindow?.title = newValue
                 }
             }
         }
@@ -122,7 +146,7 @@ class AKPlugin: NSObject, Plugin {
     private let logger = Logger(subsystem: "PlayTools", category: "MaaTools")
 
     @MainActor private var windowID: CGWindowID? {
-        guard let windowNumber = NSApplication.shared.windows.first?.windowNumber else {
+        guard let windowNumber = currentWindow?.windowNumber else {
             logger.error("Cannot find any window of the app")
             return nil
         }
@@ -207,7 +231,7 @@ class AKPlugin: NSObject, Plugin {
     }
 
     var windowContentRect: CGRect {
-        guard let window = NSApplication.shared.windows.first else {
+        guard let window = currentWindow else {
             return CGRect()
         }
         return window.contentRect(forFrameRect: window.frame)
@@ -361,7 +385,7 @@ class AKPlugin: NSObject, Plugin {
             }
 
             // For traffic light buttons when fullscreen
-            if event.window != NSApplication.shared.windows.first! {
+            if event.window != self.currentWindow! {
                 return event
             }
             if consumed(event.buttonNumber, true) {
