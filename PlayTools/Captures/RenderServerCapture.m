@@ -5,9 +5,8 @@
 #import <objc/message.h>
 
 // 私有符号始终运行时探测；不可用时由显示管线退回普通窗口路径。
-// CARenderServerRenderLayer 的第三个参数必须是实际 CALayer 对象指针，而不是 render id。
+// CARenderServerRenderLayer 系列的 layer 参数必须是实际 CALayer 对象指针，而不是 render id。
 typedef struct __Surface *PTIOSurfaceRef;
-typedef void (*PTSetDrawableFn)(uint32_t, uint32_t, uint64_t, PTIOSurfaceRef, int32_t, int32_t);
 // 带变换的渲染变体：transform 负责把 layer 的坐标空间映射到 surface 像素空间。
 typedef void (*PTSetDrawableWithTransformFn)(uint32_t, uint32_t, uint64_t, PTIOSurfaceRef,
                                              int32_t, int32_t, const CATransform3D *);
@@ -19,7 +18,6 @@ typedef size_t (*PTSurfaceSizeFn)(PTIOSurfaceRef);
 typedef int (*PTSurfaceLockFn)(PTIOSurfaceRef, uint32_t, void *);
 typedef int (*PTSurfaceUnlockFn)(PTIOSurfaceRef, uint32_t, void *);
 
-static PTSetDrawableFn PTRenderServerRenderLayer;
 static PTSetDrawableWithTransformFn PTRenderServerRenderLayerWithTransform;
 static PTGetContextFn PTGetLayerContext;
 static PTSurfaceCreateFn PTSurfaceCreate;
@@ -34,8 +32,6 @@ static BOOL PTSymbolsReady;
 static void PTRenderServerLoadOnce(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        PTRenderServerRenderLayer =
-            (PTSetDrawableFn)dlsym(RTLD_DEFAULT, "CARenderServerRenderLayer");
         PTRenderServerRenderLayerWithTransform =
             (PTSetDrawableWithTransformFn)dlsym(RTLD_DEFAULT,
                                                 "CARenderServerRenderLayerWithTransform");
@@ -54,17 +50,12 @@ static void PTRenderServerLoadOnce(void) {
             PTSurfaceUnlock = (PTSurfaceUnlockFn)dlsym(surfaceFramework, "IOSurfaceUnlock");
         }
 
-        PTSymbolsReady = PTRenderServerRenderLayer != NULL && PTGetLayerContext != NULL &&
+        PTSymbolsReady = PTGetLayerContext != NULL &&
             PTSurfaceCreate != NULL && PTSurfaceBase != NULL &&
             PTSurfaceBytesPerRow != NULL && PTSurfaceWidth != NULL &&
             PTSurfaceHeight != NULL && PTSurfaceLock != NULL &&
             PTSurfaceUnlock != NULL;
     });
-}
-
-BOOL PTRenderServerCaptureAvailable(void) {
-    PTRenderServerLoadOnce();
-    return PTSymbolsReady;
 }
 
 BOOL PTRenderServerScaledCaptureAvailable(void) {
@@ -99,24 +90,6 @@ PTSurfaceRef PTRenderServerCreateSurface(NSUInteger width, NSUInteger height) {
         return NULL;
     }
     return (PTSurfaceRef)PTSurfaceCreate((__bridge CFDictionaryRef)PTSurfaceProperties(width, height));
-}
-
-BOOL PTRenderServerRenderLayerIntoSurface(CALayer *layer, PTSurfaceRef surface) {
-    PTRenderServerLoadOnce();
-    if (!PTSymbolsReady || layer == nil || surface == NULL) {
-        return NO;
-    }
-
-    uint32_t contextId = PTContextIdForLayer(layer);
-    if (contextId == 0) {
-        return NO;
-    }
-
-    // 不调用 CALayerGetRenderId：RenderServer 需要 Objective-C CALayer 对象地址。
-    uint64_t layerPointer = (uint64_t)(uintptr_t)(__bridge void *)layer;
-    PTRenderServerRenderLayer(0, contextId, layerPointer,
-                              (PTIOSurfaceRef)surface, 0, 0);
-    return YES;
 }
 
 BOOL PTRenderServerRenderLayerFittedIntoSurface(CALayer *layer, PTSurfaceRef surface) {
@@ -198,40 +171,5 @@ NSData *PTRenderServerCopySurface(PTSurfaceRef surface,
     }
 
     PTSurfaceUnlock((PTIOSurfaceRef)surface, 0x1, NULL);
-    return data;
-}
-
-static UIWindow *PTKeyWindow(void) {
-    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if (![scene isKindOfClass:[UIWindowScene class]]) {
-            continue;
-        }
-        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if (window.isKeyWindow) {
-                return window;
-            }
-        }
-    }
-    return nil;
-}
-
-NSData *PTRenderServerCaptureKeyWindow(NSUInteger width, NSUInteger height) {
-    PTRenderServerLoadOnce();
-    if (!PTSymbolsReady) {
-        return nil;
-    }
-
-    UIWindow *window = PTKeyWindow();
-    PTSurfaceRef surface = PTRenderServerCreateSurface(width, height);
-    if (window.layer == nil || surface == NULL) {
-        PTRenderServerReleaseSurface(surface);
-        return nil;
-    }
-
-    NSData *data = nil;
-    if (PTRenderServerRenderLayerIntoSurface(window.layer, surface)) {
-        data = PTRenderServerCopySurface(surface, NULL, NULL);
-    }
-    PTRenderServerReleaseSurface(surface);
     return data;
 }

@@ -7,14 +7,6 @@ struct CanvasDisplayGeometry {
     let canvasSize: CGSize
     let windowBounds: CGRect
     let displayRect: CGRect
-
-    var scaleX: CGFloat {
-        displayRect.width / canvasSize.width
-    }
-
-    var scaleY: CGFloat {
-        displayRect.height / canvasSize.height
-    }
 }
 
 /// mode 7 只改变最终显示层的缩放，不修改 UIKit 视图树或窗口布局。
@@ -51,11 +43,6 @@ enum CanvasDisplayScaler {
         let currentGeometry = geometry
         geometryLock.unlock()
         return currentGeometry
-    }
-
-    /// 保留旧调用方需要的横向缩放值；新的触控路径使用 geometry 的正向变换。
-    static var currentScale: CGFloat {
-        cachedGeometrySnapshot()?.scaleX ?? 1
     }
 
     static func start() {

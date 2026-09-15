@@ -73,7 +73,6 @@ static BOOL PTLayerRectIsValid(CGRect rect) {
     CGRect _presenterRect;
     BOOL _geometryValid;
     NSArray<NSValue *> *_presenterSiblings;
-    NSString *_lastScaleSummary;
     CADisplayLink *_displayLink;
     PTCanvasSurfaceSlot _slots[PTCanvasSurfaceSlotCount];
     NSUInteger _currentSlot;
@@ -95,8 +94,6 @@ static BOOL PTLayerRectIsValid(CGRect rect) {
 - (BOOL)copyGeometry:(PTCanvasDisplayGeometry *)geometry;
 - (void)deactivateWithReason:(NSString *)reason;
 - (void)logPresenterSiblingChangesIfNeeded;
-- (void)logFrameStatusIfNeeded;
-- (void)logLayerScaleSummaryIfNeeded;
 @property(nonatomic, readonly) BOOL active;
 
 @end
@@ -357,13 +354,9 @@ static BOOL PTLayerRectIsValid(CGRect rect) {
     if ([self updatePresenterFrame]) {
         [self captureFrame];
     }
-    // 诊断输出：约每秒检查一次同级层顺序，约每两秒输出一次状态与缩放分布。
+    // 诊断输出：约每秒检查一次同级层顺序，用于定位窗口层级重排引起的画面问题。
     if (_displayTick % 15 == 0) {
         [self logPresenterSiblingChangesIfNeeded];
-    }
-    if (_displayTick % 120 == 0) {
-        [self logFrameStatusIfNeeded];
-        [self logLayerScaleSummaryIfNeeded];
     }
 }
 
@@ -404,66 +397,6 @@ static BOOL PTLayerRectIsValid(CGRect rect) {
                _presenterLayer.zPosition,
                [descriptions componentsJoinedByString:@" "]);
     }
-}
-
-// 状态快照：画布尺寸、窗口 bounds、两个几何矩形，以及合成时使用的缩放比。
-- (void)logFrameStatusIfNeeded {
-    if (_sourceWindow == nil || _presenterLayer == nil) {
-        return;
-    }
-    CGRect bounds = _sourceWindow.bounds;
-    CGFloat captureScaleX = bounds.size.width > 0.0 ? (CGFloat)_canvasWidth / bounds.size.width : 0.0;
-    CGFloat captureScaleY = bounds.size.height > 0.0 ? (CGFloat)_canvasHeight / bounds.size.height : 0.0;
-    os_log(PTCanvasLog(),
-           "status: canvas=%lux%lu bounds=%.0fx%.0f sourceRect=%.0fx%.0f presenter=%.0fx%.0f captureScale=%.3fx%.3f",
-           (unsigned long)_canvasWidth, (unsigned long)_canvasHeight,
-           bounds.size.width, bounds.size.height,
-           _sourceWindowRect.size.width, _sourceWindowRect.size.height,
-           _presenterRect.size.width, _presenterRect.size.height,
-           captureScaleX, captureScaleY);
-}
-
-// source window 图层树的 contentsScale 分布：用于确认 UIKit/弹窗是按窗口尺寸绘制，
-// 还是已经按固定画布绘制（有界遍历，避免异常图层树造成开销）。
-- (void)logLayerScaleSummaryIfNeeded {
-    if (_sourceLayer == nil) {
-        return;
-    }
-    NSMutableDictionary<NSNumber *, NSNumber *> *scaleCounts = [NSMutableDictionary dictionary];
-    __block NSUInteger layerCount = 0;
-    __block NSUInteger metalLayers = 0;
-    // 递归 block 必须声明为 __block：否则 block 创建时会按值捕获尚未赋值的自身。
-    __block void (^walk)(CALayer *, NSUInteger);
-    walk = ^(CALayer *layer, NSUInteger depth) {
-        if (layer == nil || layerCount >= 200 || depth > 6) {
-            return;
-        }
-        layerCount += 1;
-        NSNumber *scale = @(layer.contentsScale);
-        scaleCounts[scale] = @(scaleCounts[scale].unsignedIntegerValue + 1);
-        if ([layer isKindOfClass:[CAMetalLayer class]]) {
-            metalLayers += 1;
-        }
-        for (CALayer *sublayer in layer.sublayers) {
-            walk(sublayer, depth + 1);
-        }
-    };
-    walk(_sourceLayer, 0);
-
-    NSArray<NSNumber *> *sortedScales =
-        [scaleCounts.allKeys sortedArrayUsingSelector:@selector(compare:)];
-    NSMutableArray<NSString *> *parts = [NSMutableArray arrayWithCapacity:sortedScales.count];
-    for (NSNumber *scale in sortedScales) {
-        [parts addObject:[NSString stringWithFormat:@"%@x%lu",
-                          scale, (unsigned long)scaleCounts[scale].unsignedIntegerValue]];
-    }
-    NSString *summary = [parts componentsJoinedByString:@" "];
-    if (_lastScaleSummary != nil && [summary isEqualToString:_lastScaleSummary]) {
-        return;
-    }
-    _lastScaleSummary = summary;
-    os_log(PTCanvasLog(), "source layer contentsScale: layers=%lu metal=%lu [%{public}@]",
-           (unsigned long)layerCount, (unsigned long)metalLayers, summary);
 }
 
 - (BOOL)startWithSourceWindow:(UIWindow *)sourceWindow

@@ -74,12 +74,12 @@ public class PlayCover: NSObject {
         let height = Int(PlaySettings.shared.windowSizeHeight.rounded())
         guard width > 0, height > 0 else { return }
         guard let sourceWindow = PlayScreen.shared.keyWindow else {
-            mode7Logger.error("mode7 attempt \(attempt) aborted: key window missing")
+            logStartFailure("key window missing", attempt: attempt)
             scheduleMode7PipelineRetry(afterAttempt: attempt)
             return
         }
         guard let hostWindow = sourceWindow.nsWindow else {
-            mode7Logger.error("mode7 attempt \(attempt) aborted: host window missing for source")
+            logStartFailure("host window missing for source", attempt: attempt)
             scheduleMode7PipelineRetry(afterAttempt: attempt)
             return
         }
@@ -90,9 +90,15 @@ public class PlayCover: NSObject {
             // presenter 建立后立即发布同一份几何快照，避免首次触控读取旧坐标。
             CanvasDisplayScaler.update()
         } else {
-            mode7Logger.error("mode7 attempt \(attempt) aborted: PTCanvasDisplayStart returned false")
+            logStartFailure("PTCanvasDisplayStart returned false", attempt: attempt)
             scheduleMode7PipelineRetry(afterAttempt: attempt)
         }
+    }
+
+    /// 启动失败原因只在前几次重试时输出，避免长期重试刷屏。
+    private static func logStartFailure(_ message: String, attempt: Int) {
+        guard attempt < 4 else { return }
+        mode7Logger.error("mode7 attempt \(attempt) aborted: \(message)")
     }
 
     private static func scheduleMode7PipelineRetry(afterAttempt attempt: Int) {
