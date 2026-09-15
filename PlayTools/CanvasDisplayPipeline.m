@@ -17,6 +17,24 @@ static os_log_t PTCanvasLog(void) {
     return log;
 }
 
+// 限频日志：同一 key 至少间隔 2 秒输出一次，避免每帧刷屏。
+static BOOL PTCanvasShouldLogSlowly(NSString *key) {
+    static NSMutableDictionary<NSString *, NSDate *> *lastLog;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        lastLog = [NSMutableDictionary dictionary];
+    });
+    @synchronized (lastLog) {
+        NSDate *now = [NSDate date];
+        NSDate *last = lastLog[key];
+        if (last != nil && [now timeIntervalSinceDate:last] < 2.0) {
+            return NO;
+        }
+        lastLog[key] = now;
+        return YES;
+    }
+}
+
 static NSString * const PTCanvasPresenterName = @"com.playcover.mode7.canvas-presenter";
 enum {
     // 当前 surface 加上三个延迟回收的旧 surface，避免每三帧出现空槽位。
@@ -54,6 +72,8 @@ static BOOL PTLayerRectIsValid(CGRect rect) {
     CGRect _sourceWindowRect;
     CGRect _presenterRect;
     BOOL _geometryValid;
+    NSArray<NSValue *> *_presenterSiblings;
+    NSString *_lastScaleSummary;
     CADisplayLink *_displayLink;
     PTCanvasSurfaceSlot _slots[PTCanvasSurfaceSlotCount];
     NSUInteger _currentSlot;
@@ -73,6 +93,10 @@ static BOOL PTLayerRectIsValid(CGRect rect) {
 - (void)stop;
 - (NSData *)copyCurrentFrameWithWidth:(NSUInteger *)width height:(NSUInteger *)height;
 - (BOOL)copyGeometry:(PTCanvasDisplayGeometry *)geometry;
+- (void)deactivateWithReason:(NSString *)reason;
+- (void)logPresenterSiblingChangesIfNeeded;
+- (void)logFrameStatusIfNeeded;
+- (void)logLayerScaleSummaryIfNeeded;
 @property(nonatomic, readonly) BOOL active;
 
 @end
@@ -315,7 +339,7 @@ static BOOL PTLayerRectIsValid(CGRect rect) {
             os_log_error(PTCanvasLog(), "render into fixed surface failed");
         }
         if (_consecutiveFailures >= PTCanvasFailureLimit) {
-            [self deactivateAfterFailure];
+            [self deactivateWithReason:@"render failures"];
         }
         return NO;
     }
@@ -333,6 +357,113 @@ static BOOL PTLayerRectIsValid(CGRect rect) {
     if ([self updatePresenterFrame]) {
         [self captureFrame];
     }
+    // 诊断输出：约每秒检查一次同级层顺序，约每两秒输出一次状态与缩放分布。
+    if (_displayTick % 15 == 0) {
+        [self logPresenterSiblingChangesIfNeeded];
+    }
+    if (_displayTick % 120 == 0) {
+        [self logFrameStatusIfNeeded];
+        [self logLayerScaleSummaryIfNeeded];
+    }
+}
+
+// presenter 在父层中的位置与同级层顺序变化：UIKit 重排窗口层级时 presenter 与其它
+// UIWindow 的相对顺序会变，是"其他窗口闪烁"的首要怀疑对象，这里把每次变化打出来。
+- (void)logPresenterSiblingChangesIfNeeded {
+    CALayer *parent = _presenterParentLayer;
+    if (parent == nil || _presenterLayer == nil) {
+        return;
+    }
+    NSArray<CALayer *> *sublayers = parent.sublayers;
+    NSMutableArray<NSValue *> *snapshot = [NSMutableArray arrayWithCapacity:sublayers.count];
+    NSMutableArray<NSString *> *descriptions = [NSMutableArray arrayWithCapacity:sublayers.count];
+    NSUInteger presenterIndex = NSNotFound;
+    for (NSUInteger index = 0; index < sublayers.count; index++) {
+        CALayer *layer = sublayers[index];
+        [snapshot addObject:[NSValue valueWithPointer:(__bridge const void *)layer]];
+        if (layer == _presenterLayer) {
+            presenterIndex = index;
+        }
+        if (descriptions.count < 12) {
+            [descriptions addObject:[NSString stringWithFormat:@"%lu:%@(z=%.0f%@)",
+                                     (unsigned long)index,
+                                     NSStringFromClass([layer class]),
+                                     layer.zPosition,
+                                     layer.hidden ? @",hidden" : @""]];
+        }
+    }
+    if (_presenterSiblings != nil && [snapshot isEqualToArray:_presenterSiblings]) {
+        return;
+    }
+    _presenterSiblings = snapshot;
+    if (PTCanvasShouldLogSlowly(@"siblings")) {
+        os_log(PTCanvasLog(),
+               "presenter parent sublayers: count=%lu presenterIndex=%ld presenterZ=%{public}.0f [%{public}@]",
+               (unsigned long)sublayers.count,
+               presenterIndex == NSNotFound ? -1L : (long)presenterIndex,
+               _presenterLayer.zPosition,
+               [descriptions componentsJoinedByString:@" "]);
+    }
+}
+
+// 状态快照：画布尺寸、窗口 bounds、两个几何矩形，以及合成时使用的缩放比。
+- (void)logFrameStatusIfNeeded {
+    if (_sourceWindow == nil || _presenterLayer == nil) {
+        return;
+    }
+    CGRect bounds = _sourceWindow.bounds;
+    CGFloat captureScaleX = bounds.size.width > 0.0 ? (CGFloat)_canvasWidth / bounds.size.width : 0.0;
+    CGFloat captureScaleY = bounds.size.height > 0.0 ? (CGFloat)_canvasHeight / bounds.size.height : 0.0;
+    os_log(PTCanvasLog(),
+           "status: canvas=%lux%lu bounds=%.0fx%.0f sourceRect=%.0fx%.0f presenter=%.0fx%.0f captureScale=%.3fx%.3f",
+           (unsigned long)_canvasWidth, (unsigned long)_canvasHeight,
+           bounds.size.width, bounds.size.height,
+           _sourceWindowRect.size.width, _sourceWindowRect.size.height,
+           _presenterRect.size.width, _presenterRect.size.height,
+           captureScaleX, captureScaleY);
+}
+
+// source window 图层树的 contentsScale 分布：用于确认 UIKit/弹窗是按窗口尺寸绘制，
+// 还是已经按固定画布绘制（有界遍历，避免异常图层树造成开销）。
+- (void)logLayerScaleSummaryIfNeeded {
+    if (_sourceLayer == nil) {
+        return;
+    }
+    NSMutableDictionary<NSNumber *, NSNumber *> *scaleCounts = [NSMutableDictionary dictionary];
+    __block NSUInteger layerCount = 0;
+    __block NSUInteger metalLayers = 0;
+    // 递归 block 必须声明为 __block：否则 block 创建时会按值捕获尚未赋值的自身。
+    __block void (^walk)(CALayer *, NSUInteger);
+    walk = ^(CALayer *layer, NSUInteger depth) {
+        if (layer == nil || layerCount >= 200 || depth > 6) {
+            return;
+        }
+        layerCount += 1;
+        NSNumber *scale = @(layer.contentsScale);
+        scaleCounts[scale] = @(scaleCounts[scale].unsignedIntegerValue + 1);
+        if ([layer isKindOfClass:[CAMetalLayer class]]) {
+            metalLayers += 1;
+        }
+        for (CALayer *sublayer in layer.sublayers) {
+            walk(sublayer, depth + 1);
+        }
+    };
+    walk(_sourceLayer, 0);
+
+    NSArray<NSNumber *> *sortedScales =
+        [scaleCounts.allKeys sortedArrayUsingSelector:@selector(compare:)];
+    NSMutableArray<NSString *> *parts = [NSMutableArray arrayWithCapacity:sortedScales.count];
+    for (NSNumber *scale in sortedScales) {
+        [parts addObject:[NSString stringWithFormat:@"%@x%lu",
+                          scale, (unsigned long)scaleCounts[scale].unsignedIntegerValue]];
+    }
+    NSString *summary = [parts componentsJoinedByString:@" "];
+    if (_lastScaleSummary != nil && [summary isEqualToString:_lastScaleSummary]) {
+        return;
+    }
+    _lastScaleSummary = summary;
+    os_log(PTCanvasLog(), "source layer contentsScale: layers=%lu metal=%lu [%{public}@]",
+           (unsigned long)layerCount, (unsigned long)metalLayers, summary);
 }
 
 - (BOOL)startWithSourceWindow:(UIWindow *)sourceWindow
@@ -435,11 +566,11 @@ static BOOL PTLayerRectIsValid(CGRect rect) {
     return started;
 }
 
-- (void)deactivateAfterFailure {
+- (void)deactivateWithReason:(NSString *)reason {
     if (_active) {
         os_log_error(PTCanvasLog(),
-                     "pipeline deactivated after %lu consecutive render failures (pin kept)",
-                     (unsigned long)_consecutiveFailures);
+                     "pipeline deactivated: %{public}@ (consecutive render failures=%lu, pin kept)",
+                     reason, (unsigned long)_consecutiveFailures);
     }
     _active = NO;
     [_displayLink invalidate];
@@ -586,7 +717,7 @@ void PTCanvasDisplayStop(void) {
 
 void PTCanvasDisplaySuspend(void) {
     PTCanvasPerformOnMain(^{
-        [PTSharedCanvasController deactivateAfterFailure];
+        [PTSharedCanvasController deactivateWithReason:@"suspend requested"];
     });
 }
 

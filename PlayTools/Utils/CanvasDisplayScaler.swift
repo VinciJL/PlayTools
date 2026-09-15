@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import UIKit
 
 /// 固定画布与实时 UIWindow 之间的几何快照，截图和触控必须使用同一份数据。
@@ -25,6 +26,19 @@ enum CanvasDisplayScaler {
 
     private(set) static var geometry: CanvasDisplayGeometry?
     private static let geometryLock = NSLock()
+    private static let logger = Logger(subsystem: "PlayTools", category: "Scaler")
+    // 暂停原因只在变化时输出一次，全部在主线程访问。
+    private static var lastSuspendReason: String?
+
+    /// 暂停显示并记录原因（同一原因只打一次），便于和管线日志对照。
+    private static func suspend(reason: String) {
+        if lastSuspendReason != reason {
+            lastSuspendReason = reason
+            logger.error("scaler suspend: \(reason)")
+        }
+        PTCanvasDisplaySuspend()
+        setGeometry(nil)
+    }
 
     private static func setGeometry(_ newGeometry: CanvasDisplayGeometry?) {
         geometryLock.lock()
@@ -79,15 +93,13 @@ enum CanvasDisplayScaler {
         guard canvasSize.width > 0, canvasSize.height > 0,
               let window = PlayScreen.shared.keyWindow else {
             // 暂时拿不到 source window 时只暂停显示，保留 drawable pin。
-            PTCanvasDisplaySuspend()
-            setGeometry(nil)
+            suspend(reason: "key window or canvas size missing")
             return
         }
 
         let bounds = window.bounds
         guard bounds.width > 0, bounds.height > 0 else {
-            PTCanvasDisplaySuspend()
-            setGeometry(nil)
+            suspend(reason: "window bounds empty")
             return
         }
 
@@ -116,11 +128,11 @@ enum CanvasDisplayScaler {
               snapshot.canvasSize.height > 0,
               snapshot.sourceWindowRect.width > 0,
               snapshot.sourceWindowRect.height > 0 else {
-            PTCanvasDisplaySuspend()
-            setGeometry(nil)
+            suspend(reason: "pipeline geometry invalid")
             return
         }
 
+        lastSuspendReason = nil
         setGeometry(CanvasDisplayGeometry(canvasSize: snapshot.canvasSize,
                                            windowBounds: bounds,
                                            displayRect: snapshot.sourceWindowRect))
